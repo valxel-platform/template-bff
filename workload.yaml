@@ -1,0 +1,37 @@
+# OpenChoreo workload descriptor. The BFF is the product's only external endpoint for its web app
+# (constitution VX-17): the web component and the services stay inside the project.
+apiVersion: openchoreo.dev/v1alpha1
+metadata:
+  name: template-bff
+endpoints:
+  - name: web
+    port: 8080
+    type: HTTP
+    visibility:
+      - external
+dependencies:
+  endpoints:
+    - component: template-web       # the web app's pages
+      name: web
+      visibility: project
+      envBindings:
+        address: WEB_URL
+    - component: template-service   # the product's API; one entry and one route per service
+      name: api
+      visibility: project
+      envBindings:
+        address: API_URL
+configurations:
+  env:
+    - name: BFF_ISSUER
+      value: https://id.example.com/realms/template   # the product's Keycloak realm
+    - name: BFF_CLIENT_ID
+      value: template-bff
+    - name: BFF_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef: { name: template-bff-oidc, key: client-secret }
+    - name: REDIS_URL
+      valueFrom:
+        secretKeyRef: { name: template-bff-redis, key: url }   # rediss:// in deployed environments
+    - name: MANAGEMENT_PORT
+      value: "8081"

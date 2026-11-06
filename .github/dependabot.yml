@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      spring-boot: { patterns: ["org.springframework.boot*"] }
+      test: { patterns: ["org.testcontainers*", "org.junit*", "org.assertj*", "com.nimbusds*"] }
+    open-pull-requests-limit: 10
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+    # The JDK follows the Java toolchain (21, LTS): move both together, by hand, not by Dependabot.
+    ignore:
+      - dependency-name: eclipse-temurin
+        update-types: [version-update:semver-major]
+      - dependency-name: gcr.io/distroless/java21-debian12
+        update-types: [version-update:semver-major]
