@@ -95,6 +95,17 @@ logging:
     format:
       console: ecs                # JSON logs; never log cookies, codes or tokens
 
+# Error reports (ErrorReports). Sentry starts only when SENTRY_DSN is set (no sentry.dsn here, so
+# an unset DSN leaves Sentry off). Unhandled exceptions and ERROR logs become events.
+sentry:
+  environment: ${ENVIRONMENT:local}
+  release: ${SENTRY_RELEASE:}
+  send-default-pii: false
+  max-request-body-size: none
+  logging:
+    minimum-event-level: error
+    minimum-breadcrumb-level: error
+
 app:
   bff:
     origins: ${BFF_ORIGINS:}      # e.g. https://emr.example.com; empty: the request's own origin

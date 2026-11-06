@@ -26,6 +26,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    // Error reports to Sentry when SENTRY_DSN is set (ErrorReports).
+    implementation(platform(libs.sentry.bom))
+    implementation("io.sentry:sentry-spring-boot-4-starter")
+    implementation("io.sentry:sentry-logback")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
