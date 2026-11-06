@@ -43,9 +43,12 @@ class OriginCheckTest {
 
     @Test
     void settingsHaveSafeDefaults() {
-        BffProperties p = new BffProperties(null, " ", null);
+        BffProperties p = new BffProperties(null, " ", null, null);
         assertThat(p.origins()).isEmpty();
         assertThat(p.afterLogin()).isEqualTo("/");
         assertThat(p.afterLogout()).isEqualTo("{baseUrl}/");
+        // No mobile app unless the audience is set: /mobile/** then refuses everything.
+        assertThat(p.mobile().enabled()).isFalse();
+        assertThat(new BffProperties.Mobile(" example-api ", null).audience()).isEqualTo("example-api");
     }
 }
