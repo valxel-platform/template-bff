@@ -1,0 +1,92 @@
+spring:
+  application:
+    name: template-bff
+  # Sign-in with the product's Keycloak realm, as this BFF's confidential client.
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            provider: keycloak
+            client-id: ${BFF_CLIENT_ID:template-bff}
+            client-secret: ${BFF_CLIENT_SECRET:}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            # openid for sign-in; the product's API scopes so the relayed token can call it.
+            scope: ${BFF_SCOPES:openid,profile}
+        provider:
+          keycloak:
+            issuer-uri: ${BFF_ISSUER:}           # https://id.<domain>/realms/<product>
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            # The product's API: the person's access token relayed (and refreshed), the session
+            # cookie removed. One route per service in a real product, e.g. Path=/api/v1/patients/**.
+            - id: api
+              uri: ${API_URL:http://localhost:8080}
+              predicates:
+                - Path=/api/**
+              filters:
+                - SaveSession
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
+            # Everything else is the web app's pages, from the web component (same origin).
+            - id: web
+              uri: ${WEB_URL:http://localhost:8082}
+              predicates:
+                - Path=/**
+              filters:
+                - RemoveRequestHeader=Cookie
+  session:
+    timeout: ${BFF_SESSION_TIMEOUT:30m}
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  # TLS ends at the gateway: trust its X-Forwarded-* headers, so cookies are Secure, redirects use
+  # https and HSTS is sent.
+  forward-headers-strategy: framework
+  reactive:
+    session:
+      cookie:
+        name: __Host-SESSION     # __Host-: Secure, Path=/, no Domain: only this origin, only TLS
+        http-only: true
+        secure: true
+        same-site: strict
+        path: /
+
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}   # health and metrics: platform only, never an endpoint
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        enabled: false
+
+logging:
+  structured:
+    format:
+      console: ecs                # JSON logs; never log cookies, codes or tokens
+
+app:
+  bff:
+    origins: ${BFF_ORIGINS:}      # e.g. https://emr.example.com; empty: the request's own origin
+    after-login: /
+    after-logout: "{baseUrl}/"
