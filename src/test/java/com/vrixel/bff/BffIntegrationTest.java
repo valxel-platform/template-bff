@@ -71,8 +71,9 @@ class BffIntegrationTest {
         String backendUrl = "http://localhost:" + backend.getAddress().getPort();
         r.add("spring.security.oauth2.client.provider.keycloak.issuer-uri", keycloak::issuer);
         r.add("spring.security.oauth2.client.registration.keycloak.client-secret", () -> "bff-secret");
-        r.add("spring.cloud.gateway.server.webflux.routes[0].uri", () -> backendUrl);
-        r.add("spring.cloud.gateway.server.webflux.routes[1].uri", () -> backendUrl);
+        // Lists don't merge across property sources, so set the routes' placeholders, not the routes.
+        r.add("API_URL", () -> backendUrl);
+        r.add("WEB_URL", () -> backendUrl);
         r.add("management.server.port", () -> "0");
     }
 

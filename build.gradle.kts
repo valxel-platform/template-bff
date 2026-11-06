@@ -44,6 +44,10 @@ tasks.withType<JavaCompile>().configureEach {
 // CI runners have.
 tasks.test {
     useJUnitPlatform()
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showCauses = true
+    }
     finalizedBy(tasks.jacocoTestReport)
 }
 
