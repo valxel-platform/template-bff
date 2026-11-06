@@ -81,6 +81,18 @@ final class FakeKeycloak {
         }
     }
 
+    /** An access token a mobile app would hold: signed by the realm, for this audience. */
+    String accessToken(String audience, long expiresInSeconds) throws Exception {
+        Instant now = Instant.now();
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .issuer(issuer()).subject("user-1").audience(audience).claim("azp", "example-mobile")
+                .claim("scope", "openid greetings:read")
+                .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(expiresInSeconds))).build();
+        SignedJWT token = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("k1").build(), claims);
+        token.sign(new RSASSASigner(key));
+        return token.serialize();
+    }
+
     static void json(HttpExchange ex, String body) throws IOException {
         byte[] out = body.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().add("Content-Type", "application/json");

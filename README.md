@@ -1,12 +1,14 @@
 # BFF template (Spring Cloud Gateway, reactive)
 
-The product's backend-for-frontend: the one component the internet reaches for its web app. It
-signs people in with the product's Keycloak realm, keeps their tokens on the server, and serves the
-web app and its API from one origin.
+The product's backend-for-frontend: the one component the internet reaches for its web app and
+its mobile apps. It signs people in with the product's Keycloak realm, keeps their tokens on the
+server, and serves the web app and its API from one origin; mobile apps reach the same API with
+their own tokens.
 
 ```
 Browser ──(__Host-SESSION cookie only)──> BFF ──(person's access token)──> services (/api/**)
                                            └──────────(no cookies)───────> web app pages (/**)
+Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(same token)──> services
 ```
 
 ## What you get
@@ -20,6 +22,7 @@ Browser ──(__Host-SESSION cookie only)──> BFF ──(person's access tok
 | Pages | Everything else is proxied to the web component, without cookies. One origin: no CORS |
 | Cross-site writes | Refused three ways: SameSite=Strict, a CSRF token (`XSRF-TOKEN` cookie → `X-XSRF-TOKEN` header) on every write, and an Origin check (`BFF_ORIGINS`) |
 | Sign-out | `POST /auth/logout` ends the session here and answers `{"redirect": ...}`: the web app navigates there to end the Keycloak session too (RP-initiated logout) |
+| Mobile apps | `/mobile/api/**`: the app's own bearer token (it is a public client: PKCE, no secret), checked here for issuer, expiry and audience (`BFF_MOBILE_AUDIENCE`), then passed on with `/mobile` stripped. No session and no cookies, so no CSRF. Versions older than `BFF_MOBILE_MIN_VERSION` get 426 and the app asks the person to update |
 | Headers | HSTS (behind the gateway's TLS, via `X-Forwarded-*`), `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` |
 | Exposure | `workload.yaml`: the only `external` endpoint of the product's web app; health and metrics on the internal management port |
 
@@ -29,6 +32,16 @@ Browser ──(__Host-SESSION cookie only)──> BFF ──(person's access tok
 - `GET /auth/login` → sign in. `POST /auth/logout` (with `X-XSRF-TOKEN`) → `{"redirect": url}`;
   set `window.location` to it to finish signing out at Keycloak.
 - `fetch("/api/...", { headers: { "X-XSRF-TOKEN": <cookie> } })` for writes. No tokens, no CORS.
+
+## For the mobile apps (`template-mobile`)
+
+- `GET|PUT|... /mobile/api/...` with `Authorization: Bearer <access token>` and
+  `X-App-Version: 1.4.0`. 401 when the token is missing, expired or for another audience; 426
+  (problem details) when the version is older than the oldest supported.
+- Flags come from `/ofrep/` like the web app's (through the web route, no token).
+
+Raise `BFF_MOBILE_MIN_VERSION` only once few people use older versions (the stores show how many),
+and keep the API compatible with every version above it.
 
 ## Routes
 
@@ -41,7 +54,8 @@ Browser ──(__Host-SESSION cookie only)──> BFF ──(person's access tok
 
 `BFF_ISSUER` (`https://id.<domain>/realms/<product>`), `BFF_CLIENT_ID`, `BFF_CLIENT_SECRET`,
 `BFF_SCOPES` (`openid,profile` plus the product's API scopes), `BFF_ORIGINS`, `REDIS_URL`,
-`API_URL`, `WEB_URL`, `BFF_SESSION_TIMEOUT` (default 30m).
+`API_URL`, `WEB_URL`, `BFF_SESSION_TIMEOUT` (default 30m), `BFF_MOBILE_AUDIENCE` (the product's
+API audience; empty: no mobile app, `/mobile/**` refuses everything), `BFF_MOBILE_MIN_VERSION`.
 
 ## Why Spring Cloud Gateway
 
