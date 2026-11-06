@@ -33,6 +33,17 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // Spring Cloud brings Bouncy Castle (spring-security-rsa); versions before 1.85 have critical
+    // and high advisories (CVE-2026-8763, CVE-2026-13506). Drop this once Spring Cloud ships 1.85+.
+    constraints {
+        listOf("bcprov-jdk18on", "bcpkix-jdk18on", "bcutil-jdk18on").forEach { artifact ->
+            implementation("org.bouncycastle:$artifact") {
+                version { require("[1.85,2.0)") }
+                because("CVE-2026-8763, CVE-2026-13506")
+            }
+        }
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
