@@ -57,6 +57,12 @@ and keep the API compatible with every version above it.
 `API_URL`, `WEB_URL`, `BFF_SESSION_TIMEOUT` (default 30m), `BFF_MOBILE_AUDIENCE` (the product's
 API audience; empty: no mobile app, `/mobile/**` refuses everything), `BFF_MOBILE_MIN_VERSION`.
 
+Errors and traces: every response carries a W3C `traceresponse` header (a service's own, passed
+through, or this request's span here), which the apps put on the errors they report. With
+`SENTRY_DSN` set, unhandled exceptions and `ERROR` logs go to Sentry, scrubbed by `ErrorReports`
+(type, stack, path, `trace_id`; never messages, cookies, headers, codes or tokens). Also
+`ENVIRONMENT` and `SENTRY_RELEASE`.
+
 ## Why Spring Cloud Gateway
 
 A BFF waits on the network. Netty's event loop serves many concurrent requests per pod across all
