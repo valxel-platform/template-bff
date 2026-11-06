@@ -60,7 +60,8 @@ public class SecurityConfig {
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusServerEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .oauth2Login(login -> login
                         .authorizationRequestResolver(resolver)
-                        .authenticationSuccessHandler(new RedirectServerAuthenticationSuccessHandler(props.afterLogin())))
+                        .authenticationSuccessHandler(new RedirectServerAuthenticationSuccessHandler(props.afterLogin()))
+                        .authenticationFailureHandler(SecurityConfig::signInFailed))
                 .oauth2Client(c -> {})
                 .logout(l -> l
                         .requiresLogout(ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/auth/logout"))
@@ -73,6 +74,19 @@ public class SecurityConfig {
                         .referrerPolicy(r -> r.policy(ReferrerPolicyServerHttpHeadersWriter.ReferrerPolicy.SAME_ORIGIN)))
                 .build();
     }
+
+    /** Sign-in failed (a stale or forged callback, Keycloak refused): say why in the log, never the code. */
+    static reactor.core.publisher.Mono<Void> signInFailed(
+            org.springframework.security.web.server.WebFilterExchange exchange,
+            org.springframework.security.core.AuthenticationException e) {
+        String code = e instanceof org.springframework.security.oauth2.core.OAuth2AuthenticationException o
+                ? o.getError().getErrorCode() + " " + o.getError().getDescription() : e.getClass().getSimpleName();
+        LOG.warn("sign-in failed: {}", code);
+        return new org.springframework.security.web.server.DefaultServerRedirectStrategy()
+                .sendRedirect(exchange.getExchange(), java.net.URI.create("/?signin=failed"));
+    }
+
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(SecurityConfig.class);
 
     /**
      * People's tokens live in their session, in Redis, so every replica can relay and refresh them;
