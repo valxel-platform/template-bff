@@ -75,6 +75,8 @@ class BffIntegrationTest {
         r.add("API_URL", () -> backendUrl);
         r.add("WEB_URL", () -> backendUrl);
         r.add("management.server.port", () -> "0");
+        r.add("app.bff.mobile.audience", () -> "example-api");
+        r.add("app.bff.mobile.min-version", () -> "1.2.0");
     }
 
     @LocalServerPort
@@ -181,6 +183,57 @@ class BffIntegrationTest {
                 .contains("id_token_hint=").contains("client_id=template-bff").contains("post_logout_redirect_uri=");
         client().get().uri("/api/v1/greetings").cookie("__Host-SESSION", session).exchange()
                 .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void mobileAppsSendTheirOwnTokenWhichGoesOnToTheApi() throws Exception {
+        String token = keycloak.accessToken("example-api", 300);
+        EntityExchangeResult<byte[]> res = client().get().uri("/mobile/api/v1/greetings?name=Ada")
+                .header("Authorization", "Bearer " + token).header("X-App-Version", "1.2.0")
+                .cookie("__Host-SESSION", "x").exchange()
+                .expectStatus().isOk().expectBody().jsonPath("$.message").isEqualTo("Hello").returnResult();
+        Map<String, String> call = apiCalls.stream().filter(c -> c.get("path").equals("/api/v1/greetings")
+                && c.get("authorization").equals("Bearer " + token)).findFirst().orElseThrow();
+        assertThat(call.get("cookie")).isEqualTo("null");
+        assertThat(res.getResponseCookies()).doesNotContainKey("__Host-SESSION"); // no session for apps
+
+        // No cookies, so no CSRF token: a bearer token can't be sent by another site.
+        client().put().uri("/mobile/api/v1/greetings/ada")
+                .header("Authorization", "Bearer " + token).header("X-App-Version", "1.10.0")
+                .exchange().expectStatus().isOk();
+        assertThat(apiCalls).anyMatch(c -> c.get("path").equals("/api/v1/greetings/ada") && c.get("method").equals("PUT"));
+        // A write that carries cookies is what CSRF attacks look like: it needs the CSRF token.
+        client().put().uri("/mobile/api/v1/greetings/ada")
+                .header("Authorization", "Bearer " + token).header("X-App-Version", "1.10.0")
+                .cookie("__Host-SESSION", "x").exchange().expectStatus().isForbidden();
+    }
+
+    @Test
+    void mobileTokensMustBeCurrentAndForTheProductsApi() throws Exception {
+        client().get().uri("/mobile/api/v1/greetings").header("X-App-Version", "1.2.0")
+                .exchange().expectStatus().isUnauthorized();
+        client().get().uri("/mobile/api/v1/greetings").header("X-App-Version", "1.2.0")
+                .header("Authorization", "Bearer " + keycloak.accessToken("another-api", 300))
+                .exchange().expectStatus().isUnauthorized();
+        client().get().uri("/mobile/api/v1/greetings").header("X-App-Version", "1.2.0")
+                .header("Authorization", "Bearer " + keycloak.accessToken("example-api", -120))
+                .exchange().expectStatus().isUnauthorized();
+        // A session cookie is no way in either.
+        String session = signIn();
+        client().get().uri("/mobile/api/v1/greetings").header("X-App-Version", "1.2.0")
+                .cookie("__Host-SESSION", session).exchange().expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void oldAppVersionsAreAskedToUpdate() throws Exception {
+        String token = keycloak.accessToken("example-api", 300);
+        for (String version : new String[] {"1.1.9", "", "latest"}) {
+            client().get().uri("/mobile/api/v1/greetings").header("Authorization", "Bearer " + token)
+                    .header("X-App-Version", version).exchange()
+                    .expectStatus().isEqualTo(426)
+                    .expectHeader().contentType("application/problem+json")
+                    .expectBody().jsonPath("$.title").isEqualTo("Upgrade Required");
+        }
     }
 
     @Test

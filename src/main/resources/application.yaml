@@ -22,6 +22,15 @@ spring:
       server:
         webflux:
           routes:
+            # The product's mobile apps: the app's own bearer token (checked by MobileSecurityConfig)
+            # passed on as it is, /mobile stripped, cookies removed.
+            - id: mobile
+              uri: ${API_URL:http://localhost:8080}
+              predicates:
+                - Path=/mobile/api/**
+              filters:
+                - StripPrefix=1
+                - RemoveRequestHeader=Cookie
             # The product's API: the person's access token relayed (and refreshed), the session
             # cookie removed. One route per service in a real product, e.g. Path=/api/v1/patients/**.
             - id: api
@@ -39,6 +48,7 @@ spring:
                 - Path=/**
               filters:
                 - RemoveRequestHeader=Cookie
+                - RemoveRequestHeader=Authorization
   session:
     timeout: ${BFF_SESSION_TIMEOUT:30m}
   data:
@@ -90,3 +100,6 @@ app:
     origins: ${BFF_ORIGINS:}      # e.g. https://emr.example.com; empty: the request's own origin
     after-login: /
     after-logout: "{baseUrl}/"
+    mobile:
+      audience: ${BFF_MOBILE_AUDIENCE:}         # the product's API, e.g. emr-api; empty: no mobile app
+      min-version: ${BFF_MOBILE_MIN_VERSION:}   # oldest app version still supported, e.g. 1.4.0
