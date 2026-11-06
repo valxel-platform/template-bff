@@ -7,7 +7,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
-import org.springframework.security.oauth2.client.oidc.web.server.logout.OidcClientInitiatedServerLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ReactiveClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.server.DefaultServerOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
@@ -28,7 +27,8 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
  * <ul>
  *   <li>{@code /api/**}: signed-in people only; otherwise 401 (never a redirect, so the web app
  *       can show its sign-in button).
- *   <li>{@code /auth/login} starts sign-in, {@code /auth/logout} (POST) ends it at Keycloak too,
+ *   <li>{@code /auth/login} starts sign-in, {@code /auth/logout} (POST) ends it here and answers
+ *       where to end it at Keycloak too,
  *       {@code /auth/me} says who is signed in.
  *   <li>Everything else is the web app's pages, open: they hold no data.
  * </ul>
@@ -44,8 +44,7 @@ public class SecurityConfig {
         DefaultServerOAuth2AuthorizationRequestResolver resolver = new DefaultServerOAuth2AuthorizationRequestResolver(clients);
         resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
 
-        OidcClientInitiatedServerLogoutSuccessHandler logout = new OidcClientInitiatedServerLogoutSuccessHandler(clients);
-        logout.setPostLogoutRedirectUri(props.afterLogout());
+        JsonLogout logout = new JsonLogout(clients, props.afterLogout());
 
         // The web app reads XSRF-TOKEN and sends it back as X-XSRF-TOKEN on every write. Plain
         // (not BREACH-masked) tokens: the cookie is SameSite=Strict and the value is not reflected.

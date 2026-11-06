@@ -19,14 +19,15 @@ Browser ──(__Host-SESSION cookie only)──> BFF ──(person's access tok
 | API calls | `/api/**` is proxied to the services with the person's access token (`TokenRelay`), refreshed when it expires; the session cookie is removed. Signed-out callers get 401, never a redirect |
 | Pages | Everything else is proxied to the web component, without cookies. One origin: no CORS |
 | Cross-site writes | Refused three ways: SameSite=Strict, a CSRF token (`XSRF-TOKEN` cookie → `X-XSRF-TOKEN` header) on every write, and an Origin check (`BFF_ORIGINS`) |
-| Sign-out | `POST /auth/logout` ends the session here and at Keycloak (RP-initiated logout) |
+| Sign-out | `POST /auth/logout` ends the session here and answers `{"redirect": ...}`: the web app navigates there to end the Keycloak session too (RP-initiated logout) |
 | Headers | HSTS (behind the gateway's TLS, via `X-Forwarded-*`), `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` |
 | Exposure | `workload.yaml`: the only `external` endpoint of the product's web app; health and metrics on the internal management port |
 
 ## For the web app
 
 - `GET /auth/me` → `{"authenticated": true, "sub": "...", "name": "..."}` (also sets `XSRF-TOKEN`).
-- `GET /auth/login` → sign in. `POST /auth/logout` (with `X-XSRF-TOKEN`) → sign out.
+- `GET /auth/login` → sign in. `POST /auth/logout` (with `X-XSRF-TOKEN`) → `{"redirect": url}`;
+  set `window.location` to it to finish signing out at Keycloak.
 - `fetch("/api/...", { headers: { "X-XSRF-TOKEN": <cookie> } })` for writes. No tokens, no CORS.
 
 ## Routes

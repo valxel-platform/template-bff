@@ -174,11 +174,11 @@ class BffIntegrationTest {
         EntityExchangeResult<byte[]> me = client().get().uri("/auth/me").cookie("__Host-SESSION", session).exchange()
                 .expectBody().returnResult();
         String csrf = cookie(me, "XSRF-TOKEN").getValue();
-        EntityExchangeResult<byte[]> out = client().post().uri("/auth/logout")
+        String out = new String(client().post().uri("/auth/logout")
                 .cookie("__Host-SESSION", session).cookie("XSRF-TOKEN", csrf).header("X-XSRF-TOKEN", csrf)
-                .exchange().expectStatus().isFound().expectBody().returnResult();
-        assertThat(out.getResponseHeaders().getLocation().toString())
-                .startsWith(keycloak.issuer() + "/protocol/openid-connect/logout").contains("id_token_hint=");
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody(), StandardCharsets.UTF_8);
+        assertThat(out).startsWith("{\"redirect\":\"" + keycloak.issuer() + "/protocol/openid-connect/logout")
+                .contains("id_token_hint=").contains("client_id=template-bff").contains("post_logout_redirect_uri=");
         client().get().uri("/api/v1/greetings").cookie("__Host-SESSION", session).exchange()
                 .expectStatus().isUnauthorized();
     }
