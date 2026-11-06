@@ -202,6 +202,10 @@ class BffIntegrationTest {
                 .header("Authorization", "Bearer " + token).header("X-App-Version", "1.10.0")
                 .exchange().expectStatus().isOk();
         assertThat(apiCalls).anyMatch(c -> c.get("path").equals("/api/v1/greetings/ada") && c.get("method").equals("PUT"));
+        // A write that carries cookies is what CSRF attacks look like: it needs the CSRF token.
+        client().put().uri("/mobile/api/v1/greetings/ada")
+                .header("Authorization", "Bearer " + token).header("X-App-Version", "1.10.0")
+                .cookie("__Host-SESSION", "x").exchange().expectStatus().isForbidden();
     }
 
     @Test
