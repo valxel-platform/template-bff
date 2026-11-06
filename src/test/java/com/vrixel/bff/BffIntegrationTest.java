@@ -93,14 +93,17 @@ class BffIntegrationTest {
         EntityExchangeResult<byte[]> start = client().get().uri("/oauth2/authorization/keycloak").exchange()
                 .expectStatus().isFound().expectBody().returnResult();
         URI authorize = start.getResponseHeaders().getLocation();
-        Map<String, String> q = UriComponentsBuilder.fromUri(authorize).build().getQueryParams().toSingleValueMap();
+        Map<String, String> q = UriComponentsBuilder.fromUri(authorize).build().getQueryParams().toSingleValueMap()
+                .entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,
+                        e -> java.net.URLDecoder.decode(e.getValue(), StandardCharsets.UTF_8)));
         assertThat(authorize.toString()).startsWith(keycloak.issuer() + "/protocol/openid-connect/auth");
         assertThat(q).containsEntry("code_challenge_method", "S256").containsKeys("code_challenge", "state", "nonce");
         keycloak.nonce = q.get("nonce");
         String preLogin = cookie(start, "__Host-SESSION").getValue();
 
         EntityExchangeResult<byte[]> callback = client().get()
-                .uri("/login/oauth2/code/keycloak?code=c1&state=" + q.get("state"))
+                .uri(b -> b.path("/login/oauth2/code/keycloak").queryParam("code", "c1").queryParam("state", "{state}")
+                        .build(q.get("state")))
                 .cookie("__Host-SESSION", preLogin).exchange()
                 .expectStatus().isFound().expectBody().returnResult();
         assertThat(callback.getResponseHeaders().getLocation().getPath()).isEqualTo("/");
