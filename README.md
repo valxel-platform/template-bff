@@ -23,6 +23,7 @@ Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(
 | Cross-site writes | Refused three ways: SameSite=Strict, a CSRF token (`XSRF-TOKEN` cookie → `X-XSRF-TOKEN` header) on every write, and an Origin check (`BFF_ORIGINS`) |
 | Sign-out | `POST /auth/logout` ends the session here and answers `{"redirect": ...}`: the web app navigates there to end the Keycloak session too (RP-initiated logout) |
 | Mobile apps | `/mobile/api/**`: the app's own bearer token (it is a public client: PKCE, no secret), checked here for issuer, expiry and audience (`BFF_MOBILE_AUDIENCE`), then passed on with `/mobile` stripped. No session and no cookies, so no CSRF. Versions older than `BFF_MOBILE_MIN_VERSION` get 426 and the app asks the person to update |
+| Gradual releases | `POST /flag-cohorts` (web: session and CSRF token) and `POST /mobile/flag-cohorts` (mobile: bearer token) take the apps' per-flag counts each minute and log one `vrixel.flag_cohorts` line per flag and app a minute (`FlagCohortRelay`). Signed-in people only, once a minute each, at most 120 per side: one person can't swing the SDLC tool's comparison |
 | Headers | HSTS (behind the gateway's TLS, via `X-Forwarded-*`), `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` |
 | Exposure | `workload.yaml`: the only `external` endpoint of the product's web app; health and metrics on the internal management port |
 
@@ -42,6 +43,26 @@ Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(
 
 Raise `BFF_MOBILE_MIN_VERSION` only once few people use older versions (the stores show how many),
 and keep the API compatible with every version above it.
+
+## Gradual releases: the apps' counts
+
+While the SDLC tool turns a feature on for a growing share of users, it compares people with the
+flag on against people with it off, per component, from `vrixel.flag_cohorts` log lines. The
+services count their own requests. The web and mobile apps count user-minutes: a minute in which
+the app used a flag, failed if it had an unhandled error or a failed API call. They post these
+counts here once a minute:
+
+```json
+{"flags": {"emr.emr-feat-3.check-in-kiosk": {"on": {"requests": 1, "errors": 0}}}}
+```
+
+The answer is 202 when the counts are added, 429 when the same person already posted within the
+minute, and 400 when the counts aren't ones a single person could have: more than 50 flags, more
+than 120 on a side, errors above the total, or not whole numbers. Once a minute the BFF logs the
+totals with `"source": "web"` or `"mobile"`. Only counts are kept, never a user, page or error.
+
+The BFF checks no flags of its own. It forwards requests to the services, which already count
+them, so counting them here as well would count each request twice.
 
 ## Routes
 

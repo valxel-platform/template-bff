@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -234,6 +235,37 @@ class BffIntegrationTest {
                     .expectHeader().contentType("application/problem+json")
                     .expectBody().jsonPath("$.title").isEqualTo("Upgrade Required");
         }
+    }
+
+    @Test
+    void theAppsPostTheirFlagCountsOnceAMinuteSignedIn() throws Exception {
+        String counts = "{\"flags\":{\"emr.emr-feat-3.kiosk\":{\"on\":{\"requests\":3,\"errors\":1}}}}";
+        String session = signIn();
+        EntityExchangeResult<byte[]> me = client().get().uri("/auth/me").cookie("__Host-SESSION", session).exchange()
+                .expectBody().returnResult();
+        String csrf = cookie(me, "XSRF-TOKEN").getValue();
+        client().post().uri("/flag-cohorts").contentType(MediaType.APPLICATION_JSON).bodyValue(counts)
+                .cookie("__Host-SESSION", session).cookie("XSRF-TOKEN", csrf).header("X-XSRF-TOKEN", csrf)
+                .exchange().expectStatus().isAccepted();
+        client().post().uri("/flag-cohorts").contentType(MediaType.APPLICATION_JSON).bodyValue(counts)
+                .cookie("__Host-SESSION", session).cookie("XSRF-TOKEN", csrf).header("X-XSRF-TOKEN", csrf)
+                .exchange().expectStatus().isEqualTo(429); // once a minute
+        client().post().uri("/flag-cohorts").contentType(MediaType.APPLICATION_JSON).bodyValue(counts)
+                .cookie("__Host-SESSION", session).exchange().expectStatus().isForbidden(); // no CSRF token
+        client().post().uri("/flag-cohorts").contentType(MediaType.APPLICATION_JSON).bodyValue(counts)
+                .exchange().expectStatus().value(s -> assertThat(s).isIn(401, 403)); // signed out
+
+        String token = keycloak.accessToken("example-api", 300);
+        client().post().uri("/mobile/flag-cohorts").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"flags\":{\"emr.emr-feat-3.kiosk\":{\"off\":{\"requests\":500,\"errors\":0}}}}")
+                .header("Authorization", "Bearer " + token).header("X-App-Version", "1.2.0")
+                .exchange().expectStatus().isBadRequest(); // more than one person's minute
+        client().post().uri("/mobile/flag-cohorts").contentType(MediaType.APPLICATION_JSON).bodyValue(counts)
+                .header("Authorization", "Bearer " + token).header("X-App-Version", "1.2.0")
+                .exchange().expectStatus().isAccepted();
+        client().post().uri("/mobile/flag-cohorts").contentType(MediaType.APPLICATION_JSON).bodyValue(counts)
+                .header("X-App-Version", "1.2.0").exchange().expectStatus().isUnauthorized();
+        assertThat(apiCalls).noneMatch(c -> c.get("path").contains("flag-cohorts")); // counted here, not forwarded
     }
 
     @Test
