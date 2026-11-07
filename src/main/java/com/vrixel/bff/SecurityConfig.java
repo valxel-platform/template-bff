@@ -30,6 +30,8 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
  *   <li>{@code /auth/login} starts sign-in, {@code /auth/logout} (POST) ends it here and answers
  *       where to end it at Keycloak too,
  *       {@code /auth/me} says who is signed in.
+ *   <li>{@code /flag-cohorts} (POST): the web app's per-flag counts each minute, signed-in people
+ *       only ({@link FlagCohortRelay}).
  *   <li>Everything else is the web app's pages, open: they hold no data.
  * </ul>
  */
@@ -53,7 +55,7 @@ public class SecurityConfig {
 
         return http
                 .authorizeExchange(auth -> auth
-                        .pathMatchers("/api/**").authenticated()
+                        .pathMatchers("/api/**", "/flag-cohorts").authenticated()
                         .pathMatchers("/auth/me", "/auth/login", "/auth/logout").permitAll()
                         .anyExchange().permitAll())
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusServerEntryPoint(HttpStatus.UNAUTHORIZED)))
