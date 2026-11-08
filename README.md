@@ -81,8 +81,10 @@ API audience; empty: no mobile app, `/mobile/**` refuses everything), `BFF_MOBIL
 Errors and traces: every response carries a W3C `traceresponse` header (a service's own, passed
 through, or this request's span here), which the apps put on the errors they report. With
 `SENTRY_DSN` set, unhandled exceptions and `ERROR` logs go to Sentry, scrubbed by `ErrorReports`
-(type, stack, path, `trace_id`; never messages, cookies, headers, codes or tokens). Also
-`ENVIRONMENT` and `SENTRY_RELEASE`.
+(type, stack, path, `trace_id`, and a `component` tag so the SDLC tool routes the issue here; never
+messages, cookies, headers, codes or tokens). Also `ENVIRONMENT` and `SENTRY_RELEASE`. The tool
+puts the component's name in the files `.vrixel/identity` lists when it creates a repo from this
+template.
 
 ## Why Spring Cloud Gateway
 
