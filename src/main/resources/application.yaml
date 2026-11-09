@@ -31,6 +31,18 @@ spring:
               filters:
                 - StripPrefix=1
                 - RemoveRequestHeader=Cookie
+            # The product's agent (template-agent): conversations and runs, as the person, with
+            # /api/agent stripped. Its replies stream (Server-Sent Events) straight through: the
+            # gateway doesn't buffer them and sets no response timeout. Before the api route.
+            - id: agent
+              uri: ${AGENT_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/agent/**
+              filters:
+                - StripPrefix=2
+                - SaveSession
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
             # The product's API: the person's access token relayed (and refreshed), the session
             # cookie removed. One route per service in a real product, e.g. Path=/api/v1/patients/**.
             - id: api

@@ -21,6 +21,11 @@ dependencies:
       visibility: project
       envBindings:
         address: API_URL
+    - component: template-agent     # the product's agent, if it has one (/api/agent/**)
+      name: api
+      visibility: project
+      envBindings:
+        address: AGENT_URL
 configurations:
   env:
     - name: BFF_ISSUER

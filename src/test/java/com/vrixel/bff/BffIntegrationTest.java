@@ -41,7 +41,11 @@ class BffIntegrationTest {
 
     static final FakeKeycloak keycloak;
     static final HttpServer backend;
+    static final HttpServer agent;
     static final List<Map<String, String>> apiCalls = new CopyOnWriteArrayList<>();
+    static final List<Map<String, String>> agentCalls = new CopyOnWriteArrayList<>();
+    static final java.util.concurrent.CountDownLatch firstEventSeen = new java.util.concurrent.CountDownLatch(1);
+    static volatile boolean streamedBeforeTheEnd;
 
     static {
         try {
@@ -56,6 +60,29 @@ class BffIntegrationTest {
                 FakeKeycloak.json(ex, ex.getRequestURI().getPath().startsWith("/api") ? "{\"message\":\"Hello\"}" : "{\"page\":\"app\"}");
             });
             backend.start();
+            // The agent: a conversation's stream sends one event, then waits until the test has
+            // read it before ending, so a buffering proxy would fail the test.
+            agent = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+            agent.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+            agent.createContext("/", ex -> {
+                agentCalls.add(Map.of(
+                        "path", ex.getRequestURI().getPath(),
+                        "authorization", String.valueOf(ex.getRequestHeaders().getFirst("Authorization")),
+                        "cookie", String.valueOf(ex.getRequestHeaders().getFirst("Cookie"))));
+                ex.getResponseHeaders().add("Content-Type", "text/event-stream");
+                ex.sendResponseHeaders(200, 0);
+                try (var out = ex.getResponseBody()) {
+                    out.write("id: 1\nevent: text\ndata: {\"delta\":\"Hel\"}\n\n".getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                    try {
+                        streamedBeforeTheEnd = firstEventSeen.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    out.write("id: 2\nevent: idle\ndata: {\"status\":\"idle\"}\n\n".getBytes(StandardCharsets.UTF_8));
+                }
+            });
+            agent.start();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -65,6 +92,7 @@ class BffIntegrationTest {
     static void stop() {
         keycloak.server.stop(0);
         backend.stop(0);
+        agent.stop(0);
     }
 
     @DynamicPropertySource
@@ -74,6 +102,7 @@ class BffIntegrationTest {
         r.add("spring.security.oauth2.client.registration.keycloak.client-secret", () -> "bff-secret");
         // Lists don't merge across property sources, so set the routes' placeholders, not the routes.
         r.add("API_URL", () -> backendUrl);
+        r.add("AGENT_URL", () -> "http://localhost:" + agent.getAddress().getPort());
         r.add("WEB_URL", () -> backendUrl);
         r.add("management.server.port", () -> "0");
         r.add("app.bff.mobile.audience", () -> "example-api");
@@ -144,6 +173,28 @@ class BffIntegrationTest {
                 .expectStatus().isOk().expectBody().returnResult().getResponseBody(), StandardCharsets.UTF_8);
         assertThat(me).contains("\"authenticated\":true").contains("\"sub\":\"user-1\"")
                 .doesNotContain("access-1").doesNotContain("refresh-1");
+    }
+
+    @Test
+    void theAgentsRepliesStreamThroughAsThePerson() {
+        String session = signIn();
+        List<String> lines = client().get().uri("/api/agent/conversations/conv-1/stream?after=0")
+                .cookie("__Host-SESSION", session).accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM)
+                .exchange().expectStatus().isOk()
+                .returnResult(String.class).getResponseBody()
+                .doOnNext(line -> {
+                    if (line.contains("Hel")) {
+                        firstEventSeen.countDown();
+                    }
+                })
+                .collectList().block(java.time.Duration.ofSeconds(15));
+        assertThat(lines).anyMatch(l -> l.contains("Hel")).anyMatch(l -> l.contains("idle"));
+        assertThat(streamedBeforeTheEnd).as("the first event arrived before the stream ended").isTrue();
+        Map<String, String> call = agentCalls.getLast();
+        assertThat(call.get("path")).isEqualTo("/conversations/conv-1/stream"); // /api/agent stripped
+        assertThat(call.get("authorization")).isEqualTo("Bearer access-1");
+        assertThat(call.get("cookie")).isEqualTo("null");
+        client().get().uri("/api/agent/conversations").exchange().expectStatus().isUnauthorized();
     }
 
     @Test
