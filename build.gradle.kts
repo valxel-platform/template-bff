@@ -65,6 +65,8 @@ tasks.test {
         showCauses = true
     }
     finalizedBy(tasks.jacocoTestReport)
+    // The performance smoke test runs only when perf.yml passes -Dperf.out=<file>.
+    System.getProperty("perf.out")?.let { systemProperty("perf.out", it) }
 }
 
 tasks.jacocoTestReport {
