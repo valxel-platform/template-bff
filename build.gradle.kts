@@ -50,6 +50,10 @@ dependencies {
                 because("CVE-2026-8763, CVE-2026-13506")
             }
         }
+        implementation("at.yawk.lz4:lz4-java") {
+            version { require("[1.11.4,2.0)") }
+            because("CVE-2026-106451 (GHSA-mcr4-qmvw-px4g), through kafka-clients")
+        }
     }
 }
 
