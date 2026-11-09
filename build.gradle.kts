@@ -25,6 +25,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-session-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Sign-ins and sign-outs on the product's audit trail (SignInAudit).
+    implementation("org.apache.kafka:kafka-clients")
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
     // Error reports to Sentry when SENTRY_DSN is set (ErrorReports).
     implementation(platform(libs.sentry.bom))
