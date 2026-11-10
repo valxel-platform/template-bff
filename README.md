@@ -16,7 +16,9 @@ Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(
 | Concern | How |
 | --- | --- |
 | Sign-in | OpenID Connect authorization code flow **with PKCE**, as a confidential client of the realm (`BFF_CLIENT_ID`, `BFF_CLIENT_SECRET`) |
-| Tokens | Never in the browser. Stored in the person's session in **Redis** (`REDIS_URL`), so every replica can relay and refresh them |
+| Tokens | Never in the browser. Stored in the person's session in **Redis** (`REDIS_URL`), so every replica can relay and refresh them. Outside local work the BFF refuses to start unless `REDIS_URL` is `rediss://` (TLS) |
+| Sign-in audit | Sign-ins, failed sign-ins (with the OAuth error code) and sign-outs go to the product's audit trail (`vrixel.audit.v1`, `AUDIT_SINK=kafka`), by person id, never name or token; sent without waiting, so an audit outage never blocks signing in. PHI and payments products must use TLS to Kafka |
+| Limits | Per person, across replicas (Redis): `BFF_RATE_PER_SECOND` (20) with bursts of `BFF_RATE_BURST` (40) on `/api/**` and `/mobile/api/**`, then 429. Services must connect within `BFF_CONNECT_TIMEOUT_MS` (2000) and answer within `BFF_RESPONSE_TIMEOUT` (30s), or the caller gets 504 |
 | Session cookie | `__Host-SESSION`: HttpOnly, Secure, SameSite=Strict, Path=/, no Domain. A new session id at sign-in |
 | API calls | `/api/**` is proxied to the services with the person's access token (`TokenRelay`), refreshed when it expires; the session cookie is removed. Signed-out callers get 401, never a redirect |
 | The agent | `/api/agent/**` is proxied to the product's agent (`AGENT_URL`, `template-agent`) like the API: the person's token relayed, `/api/agent` stripped. Its conversations' replies (Server-Sent Events) stream straight through, unbuffered and without a response timeout; writes need the CSRF token like any other |
@@ -82,12 +84,19 @@ them, so counting them here as well would count each request twice.
 `BFF_SCOPES` (`openid,profile` plus the product's API scopes), `BFF_ORIGINS`, `REDIS_URL`,
 `API_URL`, `AGENT_URL`, `WEB_URL`, `BFF_SESSION_TIMEOUT` (default 30m), `BFF_MOBILE_AUDIENCE` (the product's
 API audience; empty: no mobile app, `/mobile/**` refuses everything), `BFF_MOBILE_MIN_VERSION`.
+`API_URL`, `WEB_URL`, `BFF_SESSION_TIMEOUT` (default 30m), `BFF_MOBILE_AUDIENCE` (the product's
+API audience; empty: no mobile app, `/mobile/**` refuses everything), `BFF_MOBILE_MIN_VERSION`,
+`BFF_RATE_PER_SECOND`, `BFF_RATE_BURST`, `BFF_CONNECT_TIMEOUT_MS`, `BFF_RESPONSE_TIMEOUT`, and the
+audit trail's `AUDIT_SINK`, `AUDIT_KAFKA_BOOTSTRAP`, `AUDIT_TOPIC`, `PRODUCT`, `DATA_CLASS` (extra
+Kafka settings under `app.audit.kafka`).
 
 Errors and traces: every response carries a W3C `traceresponse` header (a service's own, passed
 through, or this request's span here), which the apps put on the errors they report. With
 `SENTRY_DSN` set, unhandled exceptions and `ERROR` logs go to Sentry, scrubbed by `ErrorReports`
-(type, stack, path, `trace_id`; never messages, cookies, headers, codes or tokens). Also
-`ENVIRONMENT` and `SENTRY_RELEASE`.
+(type, stack, path, `trace_id`, and a `component` tag so the SDLC tool routes the issue here; never
+messages, cookies, headers, codes or tokens). Also `ENVIRONMENT` and `SENTRY_RELEASE`. The tool
+puts the component's name in the files `.vrixel/identity` lists when it creates a repo from this
+template.
 
 ## Why Spring Cloud Gateway
 
@@ -101,3 +110,15 @@ pod and the maturity of the security stack matter more.
 ```bash
 ./gradlew test    # integration tests start Redis in a container (needs Docker)
 ```
+
+## Performance tests
+
+When the Vrixel SDLC labels a pull request `vrixel:perf-smoke` (routes, security, the limiter,
+settings or the runtime change; or the reviewer saw a performance risk), `perf.yml` runs
+`PerfSmokeTest` on main's code and the PR's: the mobile route (token check, rate limiter in Redis,
+relay) under 16 requests in flight against a backend that answers at once, so the BFF's own cost is
+what's measured. `perf/compare.py` posts `perf-smoke / report`: failed when the PR is more than 20%
+slower than main or misses the budget (500 ms, 1 s, under 1% errors). The test runs only with
+`-Dperf.out=<file>`. A BFF has no staging load test (it would need people's sessions); the API's
+staging test and production timings cover the path.
+

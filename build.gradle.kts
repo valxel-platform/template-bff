@@ -25,6 +25,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-session-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Sign-ins and sign-outs on the product's audit trail (SignInAudit).
+    implementation("org.apache.kafka:kafka-clients")
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
     // Error reports to Sentry when SENTRY_DSN is set (ErrorReports).
     implementation(platform(libs.sentry.bom))
@@ -48,6 +50,14 @@ dependencies {
                 because("CVE-2026-8763, CVE-2026-13506")
             }
         }
+        implementation("at.yawk.lz4:lz4-java") {
+            version { require("[1.11.4,2.0)") }
+            because("CVE-2026-106451 (GHSA-mcr4-qmvw-px4g), through kafka-clients")
+        }
+        implementation("org.xerial.snappy:snappy-java") {
+            version { require("[1.1.10.9,2.0)") }
+            because("GHSA-q233-g92q-qxp6, GHSA-gwq9-9ffj-mvrv, through kafka-clients")
+        }
     }
 }
 
@@ -65,6 +75,8 @@ tasks.test {
         showCauses = true
     }
     finalizedBy(tasks.jacocoTestReport)
+    // The performance smoke test runs only when perf.yml passes -Dperf.out=<file>.
+    System.getProperty("perf.out")?.let { systemProperty("perf.out", it) }
 }
 
 tasks.jacocoTestReport {

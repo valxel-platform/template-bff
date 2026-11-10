@@ -1,0 +1,7 @@
+# Files that carry this template's name. When the SDLC tool creates a repo from the template, it
+# replaces the template's name with the new component's in each, so the Workload, the app, its logs,
+# traces and error reports (the `component` tag) name the component and its alerts route to it.
+workload.yaml
+settings.gradle.kts
+src/main/resources/application.yaml
+.github/workflows/ci.yml

@@ -21,6 +21,10 @@ spring:
     gateway:
       server:
         webflux:
+          # A slow or stuck service never ties up the edge: connect within 2 s, answer within 30 s.
+          httpclient:
+            connect-timeout: ${BFF_CONNECT_TIMEOUT_MS:2000}
+            response-timeout: ${BFF_RESPONSE_TIMEOUT:30s}
           routes:
             # The product's mobile apps: the app's own bearer token (checked by MobileSecurityConfig)
             # passed on as it is, /mobile stripped, cookies removed.
@@ -43,6 +47,11 @@ spring:
                 - SaveSession
                 - TokenRelay=
                 - RemoveRequestHeader=Cookie
+                # Per person (the token's subject), across every replica (Redis): 429 past it.
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: ${BFF_RATE_PER_SECOND:20}
+                    redis-rate-limiter.burstCapacity: ${BFF_RATE_BURST:40}
             # The product's API: the person's access token relayed (and refreshed), the session
             # cookie removed. One route per service in a real product, e.g. Path=/api/v1/patients/**.
             - id: api
@@ -53,6 +62,10 @@ spring:
                 - SaveSession
                 - TokenRelay=
                 - RemoveRequestHeader=Cookie
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: ${BFF_RATE_PER_SECOND:20}
+                    redis-rate-limiter.burstCapacity: ${BFF_RATE_BURST:40}
             # Everything else is the web app's pages, from the web component (same origin).
             - id: web
               uri: ${WEB_URL:http://localhost:8082}
@@ -65,6 +78,8 @@ spring:
     timeout: ${BFF_SESSION_TIMEOUT:30m}
   data:
     redis:
+      # rediss:// (TLS) with the password from a secret outside local work: DeployedRedis refuses
+      # to start a deployed BFF on redis://.
       url: ${REDIS_URL:redis://localhost:6379}
 
 server:
@@ -114,6 +129,9 @@ sentry:
   release: ${SENTRY_RELEASE:}
   send-default-pii: false
   max-request-body-size: none
+  # Every report names its component, so the SDLC tool routes its issues to it.
+  tags:
+    component: ${spring.application.name}
   logging:
     minimum-event-level: error
     minimum-breadcrumb-level: error
@@ -126,3 +144,13 @@ app:
     mobile:
       audience: ${BFF_MOBILE_AUDIENCE:}         # the product's API, e.g. emr-api; empty: no mobile app
       min-version: ${BFF_MOBILE_MIN_VERSION:}   # oldest app version still supported, e.g. 1.4.0
+  # Sign-ins, failed sign-ins and sign-outs on the product's audit trail (SignInAudit): kafka in
+  # deployed environments, log locally. Sent without waiting; never blocks signing in.
+  audit:
+    sink: ${AUDIT_SINK:log}
+    bootstrap: ${AUDIT_KAFKA_BOOTSTRAP:}
+    topic: ${AUDIT_TOPIC:audit.v1}
+    product: ${PRODUCT:}
+    environment: ${ENVIRONMENT:}
+    data-class: ${DATA_CLASS:general}    # phi and payments: security.protocol must be SSL or SASL_SSL
+    # kafka: { security.protocol: SASL_SSL, sasl.mechanism: SCRAM-SHA-512, sasl.jaas.config: ... }
