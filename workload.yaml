@@ -35,3 +35,5 @@ configurations:
         secretKeyRef: { name: template-bff-redis, key: url }   # rediss:// in deployed environments
     - name: MANAGEMENT_PORT
       value: "8081"
+    - name: ENVIRONMENT
+      value: production          # anything but local: REDIS_URL must be rediss://

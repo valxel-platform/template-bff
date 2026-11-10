@@ -16,7 +16,9 @@ Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(
 | Concern | How |
 | --- | --- |
 | Sign-in | OpenID Connect authorization code flow **with PKCE**, as a confidential client of the realm (`BFF_CLIENT_ID`, `BFF_CLIENT_SECRET`) |
-| Tokens | Never in the browser. Stored in the person's session in **Redis** (`REDIS_URL`), so every replica can relay and refresh them |
+| Tokens | Never in the browser. Stored in the person's session in **Redis** (`REDIS_URL`), so every replica can relay and refresh them. Outside local work the BFF refuses to start unless `REDIS_URL` is `rediss://` (TLS) |
+| Sign-in audit | Sign-ins, failed sign-ins (with the OAuth error code) and sign-outs go to the product's audit trail (`vrixel.audit.v1`, `AUDIT_SINK=kafka`), by person id, never name or token; sent without waiting, so an audit outage never blocks signing in. PHI and payments products must use TLS to Kafka |
+| Limits | Per person, across replicas (Redis): `BFF_RATE_PER_SECOND` (20) with bursts of `BFF_RATE_BURST` (40) on `/api/**` and `/mobile/api/**`, then 429. Services must connect within `BFF_CONNECT_TIMEOUT_MS` (2000) and answer within `BFF_RESPONSE_TIMEOUT` (30s), or the caller gets 504 |
 | Session cookie | `__Host-SESSION`: HttpOnly, Secure, SameSite=Strict, Path=/, no Domain. A new session id at sign-in |
 | API calls | `/api/**` is proxied to the services with the person's access token (`TokenRelay`), refreshed when it expires; the session cookie is removed. Signed-out callers get 401, never a redirect |
 | Pages | Everything else is proxied to the web component, without cookies. One origin: no CORS |
@@ -76,7 +78,10 @@ them, so counting them here as well would count each request twice.
 `BFF_ISSUER` (`https://id.<domain>/realms/<product>`), `BFF_CLIENT_ID`, `BFF_CLIENT_SECRET`,
 `BFF_SCOPES` (`openid,profile` plus the product's API scopes), `BFF_ORIGINS`, `REDIS_URL`,
 `API_URL`, `WEB_URL`, `BFF_SESSION_TIMEOUT` (default 30m), `BFF_MOBILE_AUDIENCE` (the product's
-API audience; empty: no mobile app, `/mobile/**` refuses everything), `BFF_MOBILE_MIN_VERSION`.
+API audience; empty: no mobile app, `/mobile/**` refuses everything), `BFF_MOBILE_MIN_VERSION`,
+`BFF_RATE_PER_SECOND`, `BFF_RATE_BURST`, `BFF_CONNECT_TIMEOUT_MS`, `BFF_RESPONSE_TIMEOUT`, and the
+audit trail's `AUDIT_SINK`, `AUDIT_KAFKA_BOOTSTRAP`, `AUDIT_TOPIC`, `PRODUCT`, `DATA_CLASS` (extra
+Kafka settings under `app.audit.kafka`).
 
 Errors and traces: every response carries a W3C `traceresponse` header (a service's own, passed
 through, or this request's span here), which the apps put on the errors they report. With

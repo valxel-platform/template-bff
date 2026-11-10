@@ -1,6 +1,12 @@
 package com.vrixel.bff;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.web.server.authentication.ServerAuthenticationSuccessHandler;
+import org.springframework.security.web.server.authentication.logout.ServerLogoutSuccessHandler;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -39,14 +45,32 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
 @EnableWebFluxSecurity
 public class SecurityConfig {
 
+    /** Sign-ins, failed sign-ins and sign-outs on the product's audit trail. */
+    @Bean(destroyMethod = "close")
+    SignInAudit signInAudit(SignInAudit.Settings settings, @Value("${spring.application.name}") String service) {
+        return SignInAudit.create(settings, service);
+    }
+
     @Bean
     SecurityWebFilterChain edge(
-            ServerHttpSecurity http, ReactiveClientRegistrationRepository clients, BffProperties props) {
+            ServerHttpSecurity http, ReactiveClientRegistrationRepository clients, BffProperties props,
+            SignInAudit audit) {
         // PKCE as well as the client's own credentials: a stolen authorization code is useless.
         DefaultServerOAuth2AuthorizationRequestResolver resolver = new DefaultServerOAuth2AuthorizationRequestResolver(clients);
         resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
 
-        JsonLogout logout = new JsonLogout(clients, props.afterLogout());
+        JsonLogout jsonLogout = new JsonLogout(clients, props.afterLogout());
+        ServerLogoutSuccessHandler logout = (exchange, authentication) -> {
+            if (authentication != null) {
+                audit.signedOut(person(authentication), client(authentication));
+            }
+            return jsonLogout.onLogoutSuccess(exchange, authentication);
+        };
+        RedirectServerAuthenticationSuccessHandler redirect = new RedirectServerAuthenticationSuccessHandler(props.afterLogin());
+        ServerAuthenticationSuccessHandler signedIn = (exchange, authentication) -> {
+            audit.signedIn(person(authentication), client(authentication));
+            return redirect.onAuthenticationSuccess(exchange, authentication);
+        };
 
         // The web app reads XSRF-TOKEN and sends it back as X-XSRF-TOKEN on every write. Plain
         // (not BREACH-masked) tokens: the cookie is SameSite=Strict and the value is not reflected.
@@ -61,8 +85,11 @@ public class SecurityConfig {
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusServerEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .oauth2Login(login -> login
                         .authorizationRequestResolver(resolver)
-                        .authenticationSuccessHandler(new RedirectServerAuthenticationSuccessHandler(props.afterLogin()))
-                        .authenticationFailureHandler(SecurityConfig::signInFailed))
+                        .authenticationSuccessHandler(signedIn)
+                        .authenticationFailureHandler((exchange, e) -> {
+                            audit.signInFailed(errorCode(e));
+                            return signInFailed(exchange, e);
+                        }))
                 .oauth2Client(c -> {})
                 .logout(l -> l
                         .requiresLogout(ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/auth/logout"))
@@ -74,6 +101,21 @@ public class SecurityConfig {
                         .frameOptions(f -> f.mode(XFrameOptionsServerHttpHeadersWriter.Mode.DENY))
                         .referrerPolicy(r -> r.policy(ReferrerPolicyServerHttpHeadersWriter.ReferrerPolicy.SAME_ORIGIN)))
                 .build();
+    }
+
+    /** The person's id ({@code sub}), never their name. */
+    static String person(Authentication authentication) {
+        return authentication.getPrincipal() instanceof OidcUser user ? user.getSubject() : authentication.getName();
+    }
+
+    static String client(Authentication authentication) {
+        return authentication instanceof OAuth2AuthenticationToken t ? t.getAuthorizedClientRegistrationId() : "";
+    }
+
+    /** The OAuth error code (e.g. access_denied), or the exception's type. */
+    static String errorCode(org.springframework.security.core.AuthenticationException e) {
+        return e instanceof org.springframework.security.oauth2.core.OAuth2AuthenticationException o
+                ? o.getError().getErrorCode() : e.getClass().getSimpleName();
     }
 
     /** Sign-in failed (a stale or forged callback, Keycloak refused): say why in the log, never the code. */
