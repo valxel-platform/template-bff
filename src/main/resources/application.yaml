@@ -102,6 +102,9 @@ sentry:
   release: ${SENTRY_RELEASE:}
   send-default-pii: false
   max-request-body-size: none
+  # Every report names its component, so the SDLC tool routes its issues to it.
+  tags:
+    component: ${spring.application.name}
   logging:
     minimum-event-level: error
     minimum-breadcrumb-level: error
