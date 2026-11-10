@@ -103,3 +103,15 @@ pod and the maturity of the security stack matter more.
 ```bash
 ./gradlew test    # integration tests start Redis in a container (needs Docker)
 ```
+
+## Performance tests
+
+When the Vrixel SDLC labels a pull request `vrixel:perf-smoke` (routes, security, the limiter,
+settings or the runtime change; or the reviewer saw a performance risk), `perf.yml` runs
+`PerfSmokeTest` on main's code and the PR's: the mobile route (token check, rate limiter in Redis,
+relay) under 16 requests in flight against a backend that answers at once, so the BFF's own cost is
+what's measured. `perf/compare.py` posts `perf-smoke / report`: failed when the PR is more than 20%
+slower than main or misses the budget (500 ms, 1 s, under 1% errors). The test runs only with
+`-Dperf.out=<file>`. A BFF has no staging load test (it would need people's sessions); the API's
+staging test and production timings cover the path.
+
