@@ -29,12 +29,27 @@ import org.slf4j.LoggerFactory;
  * flags and {@value #MAX_COUNT} per side, and errors never above the total. One person can't swing
  * a comparison that needs hundreds on each side. Only counts are kept: no user, page or error.
  *
+ * <p>The apps' product events (the things a feature's goal counts, {@code track("checkin_completed")})
+ * come in the same post: per flag and side as {@code "events"}, so a gradual release can compare how
+ * often people with a feature on do them, and in total as a top-level {@code "events"}, which the BFF
+ * logs once a minute for the tool's staging check and counts on the meter {@code vrixel.events}
+ * (attributes {@code event} and {@code source}):
+ *
+ * <pre>{@code vrixel.events {"checkin_completed":12}}</pre>
+ *
+ * <p>The same limits apply: at most {@value #MAX_EVENTS} event names a post, each a lowercase name,
+ * each count at most {@value #MAX_COUNT}.
+ *
  * <p>The BFF checks no flags of its own: it forwards requests to the services, which count them.
  */
 public class FlagCohortRelay implements AutoCloseable {
 
     public static final String MARKER = "vrixel.flag_cohorts";
     public static final Set<String> SOURCES = Set.of("web", "mobile");
+    public static final String EVENTS_MARKER = "vrixel.events";
+    public static final String METER = "vrixel.events";
+    static final int MAX_EVENTS = 20;
+    private static final Pattern EVENT = Pattern.compile("[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*");
     static final int MAX_FLAGS = 50;
     static final int MAX_COUNT = 120;
     static final Duration EVERY = Duration.ofSeconds(50);
@@ -48,14 +63,26 @@ public class FlagCohortRelay implements AutoCloseable {
     // (source, flag) -> on requests, on errors, off requests, off errors
     private final Map<String, AtomicLongArray> counts = new ConcurrentHashMap<>();
     private final Map<String, Instant> lastPost = new ConcurrentHashMap<>();
+    // (source, flag) -> event -> on, off
+    private final Map<String, Map<String, AtomicLongArray>> flagEvents = new ConcurrentHashMap<>();
+    // event -> count since the last summary line, across both apps
+    private final Map<String, java.util.concurrent.atomic.AtomicLong> events = new ConcurrentHashMap<>();
+    private final io.micrometer.core.instrument.MeterRegistry meters;
     private final ScheduledExecutorService reporter;
 
     /** Counts without reporting (tests); {@link #reporting()} logs once a minute. */
     public FlagCohortRelay() {
+        this(null);
+    }
+
+    /** Counts without reporting, with the meter (tests). */
+    public FlagCohortRelay(io.micrometer.core.instrument.MeterRegistry meters) {
+        this.meters = meters;
         this.reporter = null;
     }
 
-    private FlagCohortRelay(long periodSeconds) {
+    private FlagCohortRelay(long periodSeconds, io.micrometer.core.instrument.MeterRegistry meters) {
+        this.meters = meters;
         this.reporter = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "flag-cohorts");
             t.setDaemon(true);
@@ -65,7 +92,11 @@ public class FlagCohortRelay implements AutoCloseable {
     }
 
     public static FlagCohortRelay reporting() {
-        return new FlagCohortRelay(60);
+        return new FlagCohortRelay(60, null);
+    }
+
+    public static FlagCohortRelay reporting(io.micrometer.core.instrument.MeterRegistry meters) {
+        return new FlagCohortRelay(60, meters);
     }
 
     /**
@@ -76,8 +107,13 @@ public class FlagCohortRelay implements AutoCloseable {
         if (user == null || user.isBlank() || !SOURCES.contains(source)) {
             return Result.INVALID;
         }
-        if (!(body instanceof Map<?, ?> root) || !(root.get("flags") instanceof Map<?, ?> flags)
-                || flags.isEmpty() || flags.size() > MAX_FLAGS) {
+        if (!(body instanceof Map<?, ?> root)) {
+            return Result.INVALID;
+        }
+        Object rawFlags = root.containsKey("flags") ? root.get("flags") : Map.of();
+        Map<String, Long> total = events(root.get("events"));
+        if (!(rawFlags instanceof Map<?, ?> flags) || flags.size() > MAX_FLAGS || total == null
+                || (flags.isEmpty() && total.isEmpty())) {
             return Result.INVALID;
         }
         List<Object[]> parsed = new ArrayList<>();
@@ -86,10 +122,12 @@ public class FlagCohortRelay implements AutoCloseable {
                 return Result.INVALID;
             }
             long[] c = new long[4];
-            if (!side(sides.get("on"), c, 0) || !side(sides.get("off"), c, 2)) {
+            Map<String, Long> on = sides.get("on") instanceof Map<?, ?> m ? events(m.get("events")) : Map.of();
+            Map<String, Long> off = sides.get("off") instanceof Map<?, ?> m ? events(m.get("events")) : Map.of();
+            if (!side(sides.get("on"), c, 0) || !side(sides.get("off"), c, 2) || on == null || off == null) {
                 return Result.INVALID;
             }
-            parsed.add(new Object[] {key, c});
+            parsed.add(new Object[] {key, c, on, off});
         }
         String who = source + ":" + user;
         Instant last = lastPost.get(who);
@@ -99,12 +137,49 @@ public class FlagCohortRelay implements AutoCloseable {
         lastPost.put(who, now);
         for (Object[] p : parsed) {
             long[] c = (long[]) p[1];
-            AtomicLongArray into = counts.computeIfAbsent(source + "\n" + p[0], k -> new AtomicLongArray(4));
+            String id = source + "\n" + p[0];
+            AtomicLongArray into = counts.computeIfAbsent(id, k -> new AtomicLongArray(4));
             for (int i = 0; i < 4; i++) {
                 into.addAndGet(i, c[i]);
             }
+            for (int s = 0; s < 2; s++) {
+                @SuppressWarnings("unchecked")
+                Map<String, Long> ev = (Map<String, Long>) p[2 + s];
+                if (!ev.isEmpty()) {
+                    int at = s;
+                    Map<String, AtomicLongArray> byEvent = flagEvents.computeIfAbsent(id, k -> new ConcurrentHashMap<>());
+                    ev.forEach((name, n) -> byEvent.computeIfAbsent(name, x -> new AtomicLongArray(2)).addAndGet(at, n));
+                }
+            }
         }
+        total.forEach((name, n) -> {
+            events.computeIfAbsent(name, x -> new java.util.concurrent.atomic.AtomicLong()).addAndGet(n);
+            if (meters != null) {
+                io.micrometer.core.instrument.Counter.builder(METER).description("Product events the feature goals count")
+                        .tag("event", name).tag("source", source).register(meters).increment(n);
+            }
+        });
         return Result.ACCEPTED;
+    }
+
+    /** An app's event counts: {"name": n}, or null when they aren't valid. Absent is none. */
+    private static Map<String, Long> events(Object value) {
+        if (value == null) {
+            return Map.of();
+        }
+        if (!(value instanceof Map<?, ?> m) || m.size() > MAX_EVENTS) {
+            return null;
+        }
+        Map<String, Long> out = new java.util.TreeMap<>();
+        for (Map.Entry<?, ?> e : m.entrySet()) {
+            if (!(e.getKey() instanceof String name) || name.length() > 100 || !EVENT.matcher(name).matches()
+                    || !(e.getValue() instanceof Number n) || n.doubleValue() != n.longValue()
+                    || n.longValue() < 0 || n.longValue() > MAX_COUNT) {
+                return null;
+            }
+            out.put(name, n.longValue());
+        }
+        return out;
     }
 
     private static boolean side(Object value, long[] into, int at) {
@@ -138,11 +213,33 @@ public class FlagCohortRelay implements AutoCloseable {
                 continue;
             }
             String[] parts = id.split("\n", 2);
+            Map<String, AtomicLongArray> ev = flagEvents.remove(id);
             lines.add(MARKER + " {\"flag\":\"" + parts[1] + "\",\"source\":\"" + parts[0] + "\",\"on\":{\"requests\":"
-                    + c.get(0) + ",\"errors\":" + c.get(1) + "},\"off\":{\"requests\":" + c.get(2) + ",\"errors\":"
-                    + c.get(3) + "}}");
+                    + c.get(0) + ",\"errors\":" + c.get(1) + sideEvents(ev, 0) + "},\"off\":{\"requests\":" + c.get(2)
+                    + ",\"errors\":" + c.get(3) + sideEvents(ev, 1) + "}}");
+        }
+        java.util.TreeMap<String, Long> total = new java.util.TreeMap<>();
+        for (String name : List.copyOf(events.keySet())) {
+            java.util.concurrent.atomic.AtomicLong n = events.remove(name);
+            if (n != null && n.get() > 0) {
+                total.put(name, n.get());
+            }
+        }
+        if (!total.isEmpty()) {
+            List<String> parts = new ArrayList<>();
+            total.forEach((k, v) -> parts.add("\"" + k + "\":" + v));
+            lines.add(EVENTS_MARKER + " {" + String.join(",", parts) + "}");
         }
         return lines;
+    }
+
+    private static String sideEvents(Map<String, AtomicLongArray> ev, int side) {
+        if (ev == null || ev.isEmpty()) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        new java.util.TreeMap<>(ev).forEach((name, n) -> parts.add("\"" + name + "\":" + n.get(side)));
+        return ",\"events\":{" + String.join(",", parts) + "}";
     }
 
     /** Forget who posted long ago, so the map stays as small as the people using the apps now. */
