@@ -5,6 +5,9 @@ FROM eclipse-temurin:21-jdk AS build
 WORKDIR /src
 COPY gradlew settings.gradle.kts build.gradle.kts gradle.properties ./
 COPY gradle gradle
+# The lockfile, when there is one (gradle/ carries verification-metadata.xml): every resolved
+# version is the locked one, and every artifact matches its recorded checksum.
+COPY gradle.lockfil[e] ./
 RUN ./gradlew --no-daemon dependencies > /dev/null
 COPY src src
 RUN ./gradlew --no-daemon bootJar -x test \
