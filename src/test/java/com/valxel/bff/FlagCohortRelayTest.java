@@ -1,8 +1,8 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.vrixel.bff.FlagCohortRelay.Result;
+import com.valxel.bff.FlagCohortRelay.Result;
 import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;

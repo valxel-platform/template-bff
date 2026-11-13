@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;

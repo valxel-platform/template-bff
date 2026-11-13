@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;

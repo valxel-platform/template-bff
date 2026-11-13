@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;

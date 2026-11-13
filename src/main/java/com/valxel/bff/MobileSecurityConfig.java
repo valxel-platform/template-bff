@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import java.time.Duration;
 import java.util.List;

@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
  * them up and logs one line per flag and app a minute, which the SDLC tool compares like the
  * services' own:
  *
- * <pre>{@code vrixel.flag_cohorts {"flag":"emr.emr-feat-3.kiosk","source":"web","on":{"requests":40,"errors":0},"off":{"requests":760,"errors":2}}}</pre>
+ * <pre>{@code valxel.flag_cohorts {"flag":"emr.emr-feat-3.kiosk","source":"web","on":{"requests":40,"errors":0},"off":{"requests":760,"errors":2}}}</pre>
  *
  * <p>Counts come from browsers and phones, so they're not trusted beyond what one person can do:
  * only signed-in people may post, once a minute each (per replica), with at most {@value #MAX_FLAGS}
@@ -32,10 +32,10 @@ import org.slf4j.LoggerFactory;
  * <p>The apps' product events (the things a feature's goal counts, {@code track("checkin_completed")})
  * come in the same post: per flag and side as {@code "events"}, so a gradual release can compare how
  * often people with a feature on do them, and in total as a top-level {@code "events"}, which the BFF
- * logs once a minute for the tool's staging check and counts on the meter {@code vrixel.events}
+ * logs once a minute for the tool's staging check and counts on the meter {@code valxel.events}
  * (attributes {@code event} and {@code source}):
  *
- * <pre>{@code vrixel.events {"checkin_completed":12}}</pre>
+ * <pre>{@code valxel.events {"checkin_completed":12}}</pre>
  *
  * <p>The same limits apply: at most {@value #MAX_EVENTS} event names a post, each a lowercase name,
  * each count at most {@value #MAX_COUNT}.
@@ -44,10 +44,10 @@ import org.slf4j.LoggerFactory;
  */
 public class FlagCohortRelay implements AutoCloseable {
 
-    public static final String MARKER = "vrixel.flag_cohorts";
+    public static final String MARKER = "valxel.flag_cohorts";
     public static final Set<String> SOURCES = Set.of("web", "mobile");
-    public static final String EVENTS_MARKER = "vrixel.events";
-    public static final String METER = "vrixel.events";
+    public static final String EVENTS_MARKER = "valxel.events";
+    public static final String METER = "valxel.events";
     static final int MAX_EVENTS = 20;
     private static final Pattern EVENT = Pattern.compile("[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*");
     static final int MAX_FLAGS = 50;

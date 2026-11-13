@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import java.security.Principal;
 import java.time.Instant;
