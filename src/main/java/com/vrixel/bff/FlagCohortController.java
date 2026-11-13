@@ -14,7 +14,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 /**
- * Where the apps post their per-flag counts each minute ({@link FlagCohortRelay}):
+ * Where the apps post their per-flag counts and product events each minute ({@link FlagCohortRelay}):
  * {@code POST /flag-cohorts} from the web app (the session and the CSRF token, like any write) and
  * {@code POST /mobile/flag-cohorts} from the mobile apps (their bearer token). 202 when counted,
  * 429 when the same person posted within the minute, 400 when the counts aren't valid.
@@ -54,8 +54,8 @@ public class FlagCohortController {
 
         /** Logs the apps' counts once a minute for the SDLC tool's gradual releases. */
         @Bean(destroyMethod = "close")
-        FlagCohortRelay flagCohortRelay() {
-            return FlagCohortRelay.reporting();
+        FlagCohortRelay flagCohortRelay(org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meters) {
+            return FlagCohortRelay.reporting(meters.getIfAvailable());
         }
     }
 }

@@ -26,7 +26,7 @@ Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(
 | Cross-site writes | Refused three ways: SameSite=Strict, a CSRF token (`XSRF-TOKEN` cookie → `X-XSRF-TOKEN` header) on every write, and an Origin check (`BFF_ORIGINS`) |
 | Sign-out | `POST /auth/logout` ends the session here and answers `{"redirect": ...}`: the web app navigates there to end the Keycloak session too (RP-initiated logout) |
 | Mobile apps | `/mobile/api/**`: the app's own bearer token (it is a public client: PKCE, no secret), checked here for issuer, expiry and audience (`BFF_MOBILE_AUDIENCE`), then passed on with `/mobile` stripped. No session and no cookies, so no CSRF. Versions older than `BFF_MOBILE_MIN_VERSION` get 426 and the app asks the person to update |
-| Gradual releases | `POST /flag-cohorts` (web: session and CSRF token) and `POST /mobile/flag-cohorts` (mobile: bearer token) take the apps' per-flag counts each minute and log one `vrixel.flag_cohorts` line per flag and app a minute (`FlagCohortRelay`). Signed-in people only, once a minute each, at most 120 per side: one person can't swing the SDLC tool's comparison |
+| Gradual releases | `POST /flag-cohorts` (web: session and CSRF token) and `POST /mobile/flag-cohorts` (mobile: bearer token) take the apps' per-flag counts and product events each minute and log one `vrixel.flag_cohorts` line per flag and app a minute (`FlagCohortRelay`). Signed-in people only, once a minute each, at most 120 per side: one person can't swing the SDLC tool's comparison |
 | Headers | HSTS (behind the gateway's TLS, via `X-Forwarded-*`), `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` |
 | Exposure | `workload.yaml`: the only `external` endpoint of the product's web app; health and metrics on the internal management port |
 
@@ -70,6 +70,22 @@ totals with `"source": "web"` or `"mobile"`. Only counts are kept, never a user,
 
 The BFF checks no flags of its own. It forwards requests to the services, which already count
 them, so counting them here as well would count each request twice.
+
+### The apps' product events
+
+The things a feature's goal counts (`track("checkin_completed")` in the web and mobile apps) come
+in the same post: per flag and side, so a gradual release can compare how often people with a
+feature on do them, and in total:
+
+```json
+{"flags": {"emr.emr-feat-3.check-in-kiosk": {"on": {"requests": 1, "errors": 0, "events": {"checkin_completed": 2}}}},
+ "events": {"checkin_completed": 2}}
+```
+
+A post may carry only `events` when the app used no flag that minute. Once a minute the BFF logs
+the totals as one `vrixel.events {"checkin_completed":12}` line (the SDLC tool counts it in staging
+before G6) and adds them to the meter `vrixel.events` (attributes `event` and `source`). The same
+limits apply: at most 20 event names, lowercase, each count at most 120.
 
 ## Routes
 
