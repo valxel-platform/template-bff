@@ -6,8 +6,8 @@ plugins {
     alias(libs.plugins.spring.boot)
 }
 
-group = "com.vrixel"
-description = "Vrixel BFF template: browser sign-in, server-side sessions and the product's API behind one origin"
+group = "com.valxel"
+description = "Valxel BFF template: browser sign-in, server-side sessions and the product's API behind one origin"
 
 java {
     toolchain { languageVersion = JavaLanguageVersion.of(21) }

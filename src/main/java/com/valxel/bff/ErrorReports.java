@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import io.micrometer.tracing.Tracer;
 import io.sentry.Hint;

@@ -17,7 +17,7 @@ Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(
 | --- | --- |
 | Sign-in | OpenID Connect authorization code flow **with PKCE**, as a confidential client of the realm (`BFF_CLIENT_ID`, `BFF_CLIENT_SECRET`) |
 | Tokens | Never in the browser. Stored in the person's session in **Redis** (`REDIS_URL`), so every replica can relay and refresh them. Outside local work the BFF refuses to start unless `REDIS_URL` is `rediss://` (TLS) |
-| Sign-in audit | Sign-ins, failed sign-ins (with the OAuth error code) and sign-outs go to the product's audit trail (`vrixel.audit.v1`, `AUDIT_SINK=kafka`), by person id, never name or token; sent without waiting, so an audit outage never blocks signing in. PHI and payments products must use TLS to Kafka |
+| Sign-in audit | Sign-ins, failed sign-ins (with the OAuth error code) and sign-outs go to the product's audit trail (`valxel.audit.v1`, `AUDIT_SINK=kafka`), by person id, never name or token; sent without waiting, so an audit outage never blocks signing in. PHI and payments products must use TLS to Kafka |
 | Limits | Per person, across replicas (Redis): `BFF_RATE_PER_SECOND` (20) with bursts of `BFF_RATE_BURST` (40) on `/api/**` and `/mobile/api/**`, then 429. Services must connect within `BFF_CONNECT_TIMEOUT_MS` (2000) and answer within `BFF_RESPONSE_TIMEOUT` (30s), or the caller gets 504 |
 | Session cookie | `__Host-SESSION`: HttpOnly, Secure, SameSite=Strict, Path=/, no Domain. A new session id at sign-in |
 | API calls | `/api/**` is proxied to the services with the person's access token (`TokenRelay`), refreshed when it expires; the session cookie is removed. Signed-out callers get 401, never a redirect |
@@ -26,7 +26,7 @@ Mobile app ──(bearer token, X-App-Version)──> BFF /mobile/api/** ──(
 | Cross-site writes | Refused three ways: SameSite=Strict, a CSRF token (`XSRF-TOKEN` cookie → `X-XSRF-TOKEN` header) on every write, and an Origin check (`BFF_ORIGINS`) |
 | Sign-out | `POST /auth/logout` ends the session here and answers `{"redirect": ...}`: the web app navigates there to end the Keycloak session too (RP-initiated logout) |
 | Mobile apps | `/mobile/api/**`: the app's own bearer token (it is a public client: PKCE, no secret), checked here for issuer, expiry and audience (`BFF_MOBILE_AUDIENCE`), then passed on with `/mobile` stripped. No session and no cookies, so no CSRF. Versions older than `BFF_MOBILE_MIN_VERSION` get 426 and the app asks the person to update |
-| Gradual releases | `POST /flag-cohorts` (web: session and CSRF token) and `POST /mobile/flag-cohorts` (mobile: bearer token) take the apps' per-flag counts and product events each minute and log one `vrixel.flag_cohorts` line per flag and app a minute (`FlagCohortRelay`). Signed-in people only, once a minute each, at most 120 per side: one person can't swing the SDLC tool's comparison |
+| Gradual releases | `POST /flag-cohorts` (web: session and CSRF token) and `POST /mobile/flag-cohorts` (mobile: bearer token) take the apps' per-flag counts and product events each minute and log one `valxel.flag_cohorts` line per flag and app a minute (`FlagCohortRelay`). Signed-in people only, once a minute each, at most 120 per side: one person can't swing the SDLC tool's comparison |
 | Headers | HSTS (behind the gateway's TLS, via `X-Forwarded-*`), `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` |
 | Exposure | `workload.yaml`: the only `external` endpoint of the product's web app; health and metrics on the internal management port |
 
@@ -54,7 +54,7 @@ and keep the API compatible with every version above it.
 ## Gradual releases: the apps' counts
 
 While the SDLC tool turns a feature on for a growing share of users, it compares people with the
-flag on against people with it off, per component, from `vrixel.flag_cohorts` log lines. The
+flag on against people with it off, per component, from `valxel.flag_cohorts` log lines. The
 services count their own requests. The web and mobile apps count user-minutes: a minute in which
 the app used a flag, failed if it had an unhandled error or a failed API call. They post these
 counts here once a minute:
@@ -83,8 +83,8 @@ feature on do them, and in total:
 ```
 
 A post may carry only `events` when the app used no flag that minute. Once a minute the BFF logs
-the totals as one `vrixel.events {"checkin_completed":12}` line (the SDLC tool counts it in staging
-before G6) and adds them to the meter `vrixel.events` (attributes `event` and `source`). The same
+the totals as one `valxel.events {"checkin_completed":12}` line (the SDLC tool counts it in staging
+before G6) and adds them to the meter `valxel.events` (attributes `event` and `source`). The same
 limits apply: at most 20 event names, lowercase, each count at most 120.
 
 ## Routes
@@ -111,7 +111,7 @@ through, or this request's span here), which the apps put on the errors they rep
 `SENTRY_DSN` set, unhandled exceptions and `ERROR` logs go to Sentry, scrubbed by `ErrorReports`
 (type, stack, path, `trace_id`, and a `component` tag so the SDLC tool routes the issue here; never
 messages, cookies, headers, codes or tokens). Also `ENVIRONMENT` and `SENTRY_RELEASE`. The tool
-puts the component's name in the files `.vrixel/identity` lists when it creates a repo from this
+puts the component's name in the files `.valxel/identity` lists when it creates a repo from this
 template.
 
 ## Why Spring Cloud Gateway
@@ -129,7 +129,7 @@ pod and the maturity of the security stack matter more.
 
 ## Performance tests
 
-When the Vrixel SDLC labels a pull request `vrixel:perf-smoke` (routes, security, the limiter,
+When the Valxel SDLC labels a pull request `valxel:perf-smoke` (routes, security, the limiter,
 settings or the runtime change; or the reviewer saw a performance risk), `perf.yml` runs
 `PerfSmokeTest` on main's code and the PR's: the mobile route (token check, rate limiter in Redis,
 relay) under 16 requests in flight against a backend that answers at once, so the BFF's own cost is

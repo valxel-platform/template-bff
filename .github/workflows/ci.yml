@@ -1,6 +1,6 @@
 # Required checks on the default branch: unit (and CodeQL, from default setup). The unit job also
 # runs the integration tests, which start Redis in a container.
-# Job names are the check names the Vrixel SDLC and the branch ruleset look for; keep them.
+# Job names are the check names the Valxel SDLC and the branch ruleset look for; keep them.
 name: ci
 
 on:

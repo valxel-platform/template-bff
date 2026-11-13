@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.handler.TracingObservationHandler;

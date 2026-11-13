@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -23,14 +23,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Sign-ins, failed sign-ins and sign-outs, on the product's audit trail (CloudEvents
- * {@code vrixel.audit.v1}, the same records the services publish), so login monitoring doesn't
+ * {@code valxel.audit.v1}, the same records the services publish), so login monitoring doesn't
  * depend on logs. Records name the person ({@code sub}) and the client, never tokens, codes or
  * names. They are sent without waiting: an unavailable audit trail never blocks signing in or out
  * (a dropped record is logged as an error).
  */
 public class SignInAudit implements AutoCloseable {
 
-    public static final String EVENT_TYPE = "vrixel.audit.v1";
+    public static final String EVENT_TYPE = "valxel.audit.v1";
     static final Set<String> ENCRYPTED_CLASSES = Set.of("phi", "payments");
     private static final Logger LOG = LoggerFactory.getLogger("audit");
 

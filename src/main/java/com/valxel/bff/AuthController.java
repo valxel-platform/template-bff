@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import java.net.URI;
 import java.util.LinkedHashMap;

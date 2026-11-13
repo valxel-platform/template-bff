@@ -1,4 +1,4 @@
-package com.vrixel.bff;
+package com.valxel.bff;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,7 +30,7 @@ class SignInAuditTest {
         assertThat(sent).hasSize(3);
         assertThat(sent.get(0).key()).isEqualTo("session/u-123");
         assertThat(sent.get(0).json())
-                .contains("\"type\":\"vrixel.audit.v1\"", "\"action\":\"session.sign_in\"", "\"outcome\":\"success\"",
+                .contains("\"type\":\"valxel.audit.v1\"", "\"action\":\"session.sign_in\"", "\"outcome\":\"success\"",
                         "\"id\":\"u-123\"", "\"data_class\":\"phi\"", "\"source\":\"emr/emr-bff\"");
         assertThat(sent.get(1).json()).contains("\"outcome\":\"failure\"", "\"reason\":\"access_denied\"");
         assertThat(sent.get(2).json()).contains("\"action\":\"session.sign_out\"");
