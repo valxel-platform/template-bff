@@ -50,8 +50,9 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          pipx run diff-cover==11.0.2 build/reports/jacoco/test/jacocoTestReport.xml --compare-branch="origin/${{ github.base_ref }}" \
+          pipx run diff-cover==11.0.2 build/reports/jacoco/test/jacocoTestReport.xml --compare-branch="origin/$BASE_REF" \
             --format json:new-code.json
           python3 .github/scripts/report.py --context "code-quality / new code" --new-code new-code.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
