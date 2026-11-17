@@ -1,0 +1,56 @@
+# Runs after the Valxel SDLC deploys a commit: checks the deployed BFF from outside, as a browser
+# would before signing in (.github/scripts/deployed.py): signed-out /auth/me with its trace and
+# security headers, sign-in to the product's realm with PKCE, CSRF on sign-out, and cookie flags.
+# Nothing signs in or changes anything, so the same checks run in production. Results are posted on
+# the deployed commit as "integration / report" (dev), "e2e / report" (staging) and
+# "smoke / report" (production), which the pipeline's quality gates read.
+name: post-deploy
+
+on:
+  repository_dispatch:
+    types: [valxel-deployed]
+  workflow_dispatch:
+    inputs:
+      stage: { description: "dev, staging or production", required: true, type: choice, options: [dev, staging, production] }
+      base_url: { description: "The BFF's public URL", required: true }
+      sha: { description: "Deployed commit", required: true }
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-deploy-${{ github.event.client_payload.stage || inputs.stage }}-${{ github.event.client_payload.sha || inputs.sha }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify ${{ github.event.client_payload.stage || inputs.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      STAGE: ${{ github.event.client_payload.stage || inputs.stage }}
+      BASE_URL: ${{ github.event.client_payload.base_url || inputs.base_url }}
+      REPORT_SHA: ${{ github.event.client_payload.sha || inputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REPORT_SHA }}
+          persist-credentials: false
+      - name: Run the stage's suite
+        id: run
+        run: |
+          case "$STAGE" in
+            dev) echo "suite=integration" >> "$GITHUB_OUTPUT" ;;
+            staging) echo "suite=e2e" >> "$GITHUB_OUTPUT" ;;
+            production) echo "suite=smoke" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unknown stage $STAGE" >&2; exit 2 ;;
+          esac
+          python3 .github/scripts/deployed.py --base-url "$BASE_URL" --junit reports/deployed.xml
+      - name: Report results
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/report.py --context "${{ steps.run.outputs.suite }} / report" --junit 'reports/deployed.xml'
