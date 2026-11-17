@@ -127,6 +127,21 @@ pod and the maturity of the security stack matter more.
 ./gradlew test    # integration tests start Redis in a container (needs Docker)
 ```
 
+## After each deploy
+
+When the Valxel SDLC deploys a commit, `post-deploy.yml` checks the deployed BFF from outside, as
+a browser would before signing in (`.github/scripts/deployed.py`). It reports
+`integration / report` in dev, `e2e / report` in staging and `smoke / report` in production. The
+checks:
+
+- `/auth/me` answers signed out, names its trace (`traceresponse`) and sends `nosniff`, plus HSTS
+  over https.
+- Sign-in goes to the product's realm with PKCE (S256).
+- Signing out without a CSRF token is refused.
+- Every cookie is Secure and HttpOnly, with SameSite.
+
+Nothing signs in or changes anything, so the same checks run in production.
+
 ## Performance tests
 
 When the Valxel SDLC labels a pull request `valxel:perf-smoke` (routes, security, the limiter,
