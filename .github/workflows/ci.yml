@@ -43,6 +43,9 @@ jobs:
         run: |
           python3 -m venv /tmp/schema && /tmp/schema/bin/pip install -q jsonschema==4.25.1
           /tmp/schema/bin/python .github/scripts/check_audit_events.py
+      # The event and cohort lines the tests built meet the shared contracts (contracts/events).
+      - name: Summary lines against the shared contracts
+        run: /tmp/schema/bin/python .github/scripts/check_contract_lines.py
       - name: Report results
         if: ${{ !cancelled() }}
         env:
