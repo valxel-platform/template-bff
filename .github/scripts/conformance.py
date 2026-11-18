@@ -22,13 +22,14 @@ Around it: an OTLP collector, an OFREP flag service, an OpenID provider whose to
 value}`; needs confluent-kafka). A job says `once: true`: it runs to the end (exit 0) instead of serving, and
 `events_from: logs` looks for its valxel.events summary line instead of /metrics. `ready` and `metrics` (a path, or a whole URL for a management port) say where the
 app answers when it's up and where its metrics are. In conformance.yaml, env values may name them: {otlp}, {ofrep}, {issuer}, {jwks},
-{model}, {audience}, {secrets} (a folder holding conformance.yaml's `secrets`, one file each, as the
-platform mounts them), and in later steps any value an earlier step saved (save: {name: "header:<name>"
+{model}, {audience}, {files} (a folder holding conformance.yaml's `files`, one file each: synthetic
+values the app reads from a folder, as it reads its mounted secrets when deployed), and in later steps any value an earlier step saved (save: {name: "header:<name>"
 | "json:<field>"}).
 
 A repo whose app needs a database, Redis or Kafka says so (`postgres: <image>`, `redis: <image>`,
 `kafka: <image>`):
-with `image` they run as containers too, and {postgres} (and {postgres_jdbc} with {postgres_password} for a JVM), {redis} and {kafka} name them; with
+with `image` they run as containers too, and {postgres} (and {postgres_jdbc} with {postgres_password} for a JVM), {redis} and {kafka} name them
+(the database's credentials only fill env, never a step); with
 `local`, set CONFORMANCE_POSTGRES, CONFORMANCE_REDIS and CONFORMANCE_KAFKA instead.
 
 Needs pyyaml, jsonschema and pyjwt[crypto]; exits 1 naming every check that failed.
@@ -193,15 +194,16 @@ def _fill(value: Any, names: dict[str, str]) -> Any:
     return value
 
 
-SECRETS_MOUNT = "/run/conformance-secrets"
+FILES_MOUNT = "/run/conformance-files"
 
 
-def _secrets_dir(spec: dict) -> str:
-    """The test secrets conformance.yaml names, one file each (as the platform mounts them)."""
-    d = tempfile.mkdtemp(prefix="conformance-secrets-")
-    for name, value in (spec.get("secrets") or {}).items():
+def _files_dir(spec: dict) -> str:
+    """conformance.yaml's `files`, one file each: synthetic values the app reads from a folder, as it
+    reads its mounted secrets when deployed."""
+    d = tempfile.mkdtemp(prefix="conformance-files-")
+    for name, value in (spec.get("files") or {}).items():
         if "/" in name or name.startswith("."):
-            raise ValueError(f"not a secret name: {name!r}")
+            raise ValueError(f"not a file name: {name!r}")
         Path(d, name).write_text(str(value), encoding="utf-8")
         os.chmod(Path(d, name), 0o644)  # the image's own user reads them
     os.chmod(d, 0o755)
@@ -210,8 +212,8 @@ def _secrets_dir(spec: dict) -> str:
 
 class App:
     def __init__(self, spec: dict, env: dict[str, str], *, image: str = "", cmd: str = "",
-                 secrets: str = "") -> None:
-        self.spec, self.env, self.image, self.cmd, self.secrets = spec, env, image, cmd, secrets
+                 files: str = "") -> None:
+        self.spec, self.env, self.image, self.cmd, self.files = spec, env, image, cmd, files
         self.log = Path(tempfile.mkstemp(prefix="conformance-", suffix=".log")[1])
         self.name = f"conformance-{uuid.uuid4().hex[:8]}"
         self.proc: subprocess.Popen | None = None
@@ -221,8 +223,8 @@ class App:
         if self.image:
             args = ["docker", "run", "--name", self.name, "--network", "host", "--read-only",
                     "--tmpfs", "/tmp:rw,size=64m", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"]
-            if self.secrets:
-                args += ["-v", f"{self.secrets}:{SECRETS_MOUNT}:ro"]
+            if self.files:
+                args += ["-v", f"{self.files}:{FILES_MOUNT}:ro"]
             for k, v in self.env.items():
                 args += ["-e", f"{k}={v}"]
             args += [self.image, *self.spec.get("args", [])]
@@ -235,8 +237,8 @@ class App:
         if self.image:
             args = ["docker", "run", "-d", "--name", self.name, "--network", "host", "--read-only",
                     "--tmpfs", "/tmp:rw,size=64m", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"]
-            if self.secrets:
-                args += ["-v", f"{self.secrets}:{SECRETS_MOUNT}:ro"]
+            if self.files:
+                args += ["-v", f"{self.files}:{FILES_MOUNT}:ro"]
             for k, v in self.env.items():
                 args += ["-e", f"{k}={v}"]
             args += [self.image, *self.spec.get("args", [])]
@@ -392,22 +394,24 @@ def check(name: str, svc: Services, app: App, base: str, problems: list[str]) ->
 PG_PORT, KAFKA_PORT, REDIS_PORT = 55432, 59092, 56379
 
 
-def _backing(spec: dict, *, image: str, postgres: str, kafka: str) -> tuple[dict[str, str], list[str]]:
-    """{postgres} and {kafka}: what --cmd was given, or containers next to the image's."""
-    names, started = {}, []
+def _backing(spec: dict, *, image: str, postgres: str,
+             kafka: str) -> tuple[dict[str, str], dict[str, str], list[str]]:
+    """{postgres}, {redis} and {kafka}: what --cmd was given, or containers next to the image's. The
+    database's credentials come back apart: they fill the app's environment, never a step."""
+    names, creds, started = {}, {}, []
     if spec.get("postgres"):
         if postgres:
-            names["postgres"] = postgres
+            creds["postgres"] = postgres
         elif image:
             name = f"conformance-pg-{uuid.uuid4().hex[:6]}"
             password = secrets.token_hex(16)  # this run's only, for a database that lives as long as it
             subprocess.run(["docker", "run", "-d", "--name", name, "--network", "host", "-e", f"POSTGRES_PASSWORD={password}",
                             "-e", f"PGPORT={PG_PORT}", spec["postgres"]], check=True, capture_output=True)
             started.append(name)
-            names["postgres"] = f"postgresql://postgres:{password}@127.0.0.1:{PG_PORT}/postgres"
+            creds["postgres"] = f"postgresql://postgres:{password}@127.0.0.1:{PG_PORT}/postgres"
             # The same database for a JVM: a JDBC URL, with the user and password apart.
             names["postgres_jdbc"] = f"jdbc:postgresql://127.0.0.1:{PG_PORT}/postgres"
-            names["postgres_password"] = password
+            creds["postgres_password"] = password
             for _ in range(60):
                 if subprocess.run(["docker", "exec", name, "pg_isready", "-p", str(PG_PORT)], capture_output=True, check=False).returncode == 0:
                     break
@@ -435,19 +439,19 @@ def _backing(spec: dict, *, image: str, postgres: str, kafka: str) -> tuple[dict
             started.append(name)
             names["kafka"] = f"127.0.0.1:{KAFKA_PORT}"
             time.sleep(10)
-    return names, started
+    return names, creds, started
 
 
 def run(spec: dict, *, image: str = "", cmd: str = "", postgres: str = "", kafka: str = "") -> list[str]:
     svc = Services(spec.get("model_reply", "Done."), spec.get("audience", AUDIENCE))
-    backing, containers = _backing(spec, image=image, postgres=postgres, kafka=kafka)
-    secrets = _secrets_dir(spec) if spec.get("secrets") else ""
-    names = {**svc.names(), **backing, "secrets": (SECRETS_MOUNT if image else secrets) if secrets else ""}
+    backing, creds, containers = _backing(spec, image=image, postgres=postgres, kafka=kafka)
+    files = _files_dir(spec) if spec.get("files") else ""
+    names = {**svc.names(), **backing, "files": (FILES_MOUNT if image else files) if files else ""}
     env = {"OTEL_EXPORTER_OTLP_ENDPOINT": svc.otlp_url, "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
            "OTEL_TRACES_SAMPLER": "always_on", "OTEL_BSP_SCHEDULE_DELAY": "200",
-           **{k: str(v) for k, v in _fill(spec.get("env") or {}, names).items()}}
+           **{k: str(v) for k, v in _fill(spec.get("env") or {}, {**names, **creds}).items()}}
     base = f"http://127.0.0.1:{spec.get('port', 8080)}"
-    app = App(spec, env, image=image, cmd=cmd, secrets=secrets)
+    app = App(spec, env, image=image, cmd=cmd, files=files)
     problems: list[str] = []
     if spec.get("once"):  # a job: it runs, exits, and what it left behind is checked
         try:
