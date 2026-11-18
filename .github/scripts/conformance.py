@@ -17,7 +17,8 @@ what it was asked to:
 
 Around it: an OTLP collector, an OFREP flag service, an OpenID provider whose tokens the app accepts
 ({token: {claims}} on a step), and an Anthropic-compatible model API answering every call with
-`model_reply`. A job says `once: true`: it runs to the end (exit 0) instead of serving, and
+`model_reply`. A step may send a record to Kafka instead of a request (`produce: {topic, key,
+value}`; needs confluent-kafka). A job says `once: true`: it runs to the end (exit 0) instead of serving, and
 `events_from: logs` looks for its valxel.events summary line instead of /metrics. `ready` and `metrics` (a path, or a whole URL for a management port) say where the
 app answers when it's up and where its metrics are. In conformance.yaml, env values may name them: {otlp}, {ofrep}, {issuer}, {jwks},
 {model}, {audience}, {secrets} (a folder holding conformance.yaml's `secrets`, one file each, as the
@@ -26,7 +27,7 @@ platform mounts them), and in later steps any value an earlier step saved (save:
 
 A repo whose app needs a database, Redis or Kafka says so (`postgres: <image>`, `redis: <image>`,
 `kafka: <image>`):
-with `image` they run as containers too, and {postgres}, {redis} and {kafka} name them; with
+with `image` they run as containers too, and {postgres} (and {postgres_jdbc} with {postgres_password} for a JVM), {redis} and {kafka} name them; with
 `local`, set CONFORMANCE_POSTGRES, CONFORMANCE_REDIS and CONFORMANCE_KAFKA instead.
 
 Needs pyyaml, jsonschema and pyjwt[crypto]; exits 1 naming every check that failed.
@@ -268,16 +269,21 @@ class App:
 
 
 def _http(method: str, url: str, body: Any = None, headers: dict[str, str] | None = None,
-          ) -> tuple[int, str, dict[str, str]]:
-    """A request to the app under test: http to this machine only."""
+          form: dict[str, str] | None = None) -> tuple[int, str, dict[str, str]]:
+    """A request to the app under test: http to this machine only. JSON, or a form when `form`."""
+    from urllib.parse import urlencode
+
     u = urlsplit(url)
     if u.scheme != "http" or u.hostname not in ("127.0.0.1", "localhost"):
         return 0, f"the suite only calls the app on this machine, not {u.scheme}://{u.hostname}", {}
-    data = json.dumps(body).encode() if body is not None else None
+    if form is not None:
+        data, ctype = urlencode(form).encode(), "application/x-www-form-urlencoded"
+    else:
+        data, ctype = (json.dumps(body).encode() if body is not None else None), "application/json"
     conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=30)
     try:
         conn.request(method, (u.path or "/") + (f"?{u.query}" if u.query else ""), body=data, headers={
-            **({"content-type": "application/json"} if data else {}), **(headers or {})})
+            **({"content-type": ctype} if data else {}), **(headers or {})})
         resp = conn.getresponse()
         return resp.status, resp.read().decode("utf-8", "replace"), {k.lower(): v for k, v in resp.getheaders()}
     except (OSError, http.client.HTTPException) as exc:
@@ -304,6 +310,19 @@ def _saved(how: str, text: str, headers: dict[str, str]) -> str:
 
 
 # --------------------------------------------------------------------------- checks
+
+def _produce(bootstrap: str, topic: str, key: str, value: Any) -> None:
+    """One record to Kafka, acknowledged (needs confluent-kafka beside the suite)."""
+    from confluent_kafka import Producer
+
+    producer = Producer({"bootstrap.servers": bootstrap, "acks": "all"})
+    errors: list[Any] = []
+    payload = value if isinstance(value, str) else json.dumps(value)
+    producer.produce(topic, key=key.encode() or None, value=payload.encode(),
+                     on_delivery=lambda err, _msg: errors.append(err) if err else None)
+    if producer.flush(30) or errors:
+        raise RuntimeError(f"not acknowledged: {errors[0] if errors else 'timeout'}")
+
 
 def audit_records(logs: str) -> list[dict]:
     """Every valxel.audit.v1 event in the logs: a JSON line, or a JSON log line whose message is one."""
@@ -385,6 +404,9 @@ def _backing(spec: dict, *, image: str, postgres: str, kafka: str) -> tuple[dict
                             "-e", f"PGPORT={PG_PORT}", spec["postgres"]], check=True, capture_output=True)
             started.append(name)
             names["postgres"] = f"postgresql://postgres:{password}@127.0.0.1:{PG_PORT}/postgres"
+            # The same database for a JVM: a JDBC URL, with the user and password apart.
+            names["postgres_jdbc"] = f"jdbc:postgresql://127.0.0.1:{PG_PORT}/postgres"
+            names["postgres_password"] = password
             for _ in range(60):
                 if subprocess.run(["docker", "exec", name, "pg_isready", "-p", str(PG_PORT)], capture_output=True, check=False).returncode == 0:
                     break
@@ -460,13 +482,23 @@ def run(spec: dict, *, image: str = "", cmd: str = "", postgres: str = "", kafka
             saved: dict[str, str] = {}
             for i, raw_step in enumerate(spec.get("steps") or []):
                 step = _fill(_fill(raw_step, names), saved)
+                if "produce" in step:  # a record on a topic the app reads, as another component would send it
+                    p = step["produce"]
+                    try:
+                        _produce(names["kafka"], p["topic"], str(p.get("key", "")), p["value"])
+                        print(f"step {i + 1}: produced to {p['topic']}")
+                    except Exception as exc:  # noqa: BLE001 - reported as the step's problem
+                        problems.append(f"step {i + 1} (produce to {p['topic']}): {type(exc).__name__}: {exc}")
+                    time.sleep(float(step.get("wait_s", 5)))
+                    continue
                 headers = dict(step.get("headers") or {})
                 if "token" in step:
                     headers["authorization"] = "Bearer " + svc.token(step["token"] or {})
                 expect = step.get("expect", [200, 201, 202, 204])
                 deadline = time.time() + float(step.get("within_s", 0))
                 while True:
-                    status, text, got = _http(step.get("method", "GET"), base + step["path"], step.get("json"), headers)
+                    status, text, got = _http(step.get("method", "GET"), base + step["path"], step.get("json"), headers,
+                                              form=step.get("form"))
                     ok = status in (expect if isinstance(expect, list) else [expect]) and \
                         all(s in text for s in step.get("contains") or [])
                     if ok or time.time() >= deadline:
