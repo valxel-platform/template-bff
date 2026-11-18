@@ -1,0 +1,22 @@
+# The template conformance suite (.github/scripts/conformance.py, managed by the platform): the built
+# image does what every BFF repo must. A sign-in comes back refused from the product's identity
+# provider: the BFF records the failed sign-in on the audit trail.
+image: "template-bff:ci"  # the tag CI builds
+command: "./gradlew bootRun"  # conformance.py local: the app as a process
+port: 8080
+ready: http://127.0.0.1:8081/actuator/health
+redis: "redis:7-alpine"
+env:
+  BFF_ISSUER: "{issuer}"
+  BFF_CLIENT_ID: conformance-bff
+  BFF_CLIENT_SECRET: conformance-bff-secret
+  REDIS_URL: "{redis}"
+  PRODUCT: conformance
+  ENVIRONMENT: ci
+  AUDIT_SINK: log
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: "{otlp}/v1/traces"
+steps:
+  - method: GET
+    path: /login/oauth2/code/keycloak?error=access_denied&state=conformance
+    expect: [200, 302, 400, 401]
+checks: [audit, tracing]
