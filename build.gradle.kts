@@ -69,6 +69,9 @@ tasks.withType<JavaCompile>().configureEach {
 // The integration tests start Redis in a container (Testcontainers), so they need Docker, which
 // CI runners have.
 tasks.test {
+    // The audit events the tests build (SignInAuditSchemaContractTest) are an output: a test run restored
+    // from the build cache restores them too, for CI's check against the shared schema.
+    outputs.dir(layout.buildDirectory.dir("audit-events"))
     useJUnitPlatform()
     testLogging {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
