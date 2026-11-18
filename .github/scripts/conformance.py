@@ -17,7 +17,8 @@ what it was asked to:
 
 Around it: an OTLP collector, an OFREP flag service, an OpenID provider whose tokens the app accepts
 ({token: {claims}} on a step), and an Anthropic-compatible model API answering every call with
-`model_reply`. A step may send a record to Kafka instead of a request (`produce: {topic, key,
+`model_reply`. An app that serves no HTTP names a line its output prints once it's up instead
+(`ready_log`). A step may send a record to Kafka instead of a request (`produce: {topic, key,
 value}`; needs confluent-kafka). A job says `once: true`: it runs to the end (exit 0) instead of serving, and
 `events_from: logs` looks for its valxel.events summary line instead of /metrics. `ready` and `metrics` (a path, or a whole URL for a management port) say where the
 app answers when it's up and where its metrics are. In conformance.yaml, env values may name them: {otlp}, {ofrep}, {issuer}, {jwks},
@@ -470,14 +471,22 @@ def run(spec: dict, *, image: str = "", cmd: str = "", postgres: str = "", kafka
     try:
         ready = spec.get("ready", "/healthz")
         ready_url = ready if ready.startswith("http") else base + ready
+        last: tuple = (0, "", {})
         for _ in range(int(spec.get("start_s", 90))):
-            if _http("GET", ready_url)[0] == 200:
-                break
+            if spec.get("ready_log"):  # an app that serves nothing: ready when it says so
+                if spec["ready_log"] in app.logs():
+                    last = (200, "", {})
+                    break
+            else:
+                last = _http("GET", ready_url)
+                if last[0] == 200:
+                    break
             if not app.running():
+                problems.append("the app stopped before it was ready")
                 break
             time.sleep(1)
         else:
-            problems.append(f"the app didn't answer {ready}")
+            problems.append(f"the app didn't answer {ready} with 200 (last: {last[0]} {last[1][:200]})")
         if not problems:
             saved: dict[str, str] = {}
             for i, raw_step in enumerate(spec.get("steps") or []):
