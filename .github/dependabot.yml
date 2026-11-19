@@ -7,11 +7,12 @@ updates:
     groups:
       spring-boot: { patterns: ["org.springframework.boot*"] }
       test: { patterns: ["org.testcontainers*", "org.junit*", "org.assertj*", "com.nimbusds*"] }
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }  # newly published versions wait a week (security updates do not)
+    open-pull-requests-limit: 0
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
@@ -22,3 +23,4 @@ updates:
         update-types: [version-update:semver-major]
       - dependency-name: gcr.io/distroless/java21-debian13
         update-types: [version-update:semver-major]
+    open-pull-requests-limit: 0
