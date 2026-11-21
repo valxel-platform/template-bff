@@ -20,5 +20,6 @@ COPY --from=build /extracted/spring-boot-loader/ ./
 COPY --from=build /extracted/snapshot-dependencies/ ./
 COPY --from=build /extracted/application/ ./
 EXPOSE 8080
-USER nonroot
+# Distroless's nonroot user, by number: Kubernetes can only verify runAsNonRoot for a numeric user.
+USER 65532:65532
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-jar", "app.jar"]
