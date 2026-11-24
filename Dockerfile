@@ -13,7 +13,7 @@ COPY src src
 RUN ./gradlew --no-daemon bootJar -x test \
  && java -Djarmode=tools -jar build/libs/app.jar extract --layers --destination /extracted
 
-FROM gcr.io/distroless/java21-debian13:nonroot@sha256:6b60e44d652d66a9e2e584364c96adac4df7133674b2834b6f71741b7cdb1ff3
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:128bd878463537eef7771b50fecf68faace9089f654a2d233f1c4f344e6817d9
 WORKDIR /app
 COPY --from=build /extracted/dependencies/ ./
 COPY --from=build /extracted/spring-boot-loader/ ./
