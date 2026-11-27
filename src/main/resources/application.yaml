@@ -112,6 +112,13 @@ management:
   tracing:
     sampling:
       probability: 1.0
+  # Request latency in fixed buckets, the same boundaries the Python templates publish (their
+  # http_metrics.py), so one query reads every component: http_server_requests_seconds_bucket by
+  # uri, status and outcome.
+  metrics:
+    distribution:
+      slo:
+        http.server.requests: 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1000ms,2500ms,5000ms,10000ms
   otlp:
     metrics:
       export:
