@@ -118,7 +118,7 @@ management:
   metrics:
     distribution:
       slo:
-        http.server.requests: 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1s,2.5s,5s,10s
+        http.server.requests: 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1000ms,2500ms,5000ms,10000ms
   otlp:
     metrics:
       export:
