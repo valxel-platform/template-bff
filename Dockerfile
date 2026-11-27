@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build with the Gradle wrapper, extract Spring Boot's layers (dependencies change less often than
 # code, so image layers cache well), and run on a distroless JRE as a non-root user.
-FROM eclipse-temurin:21-jdk@sha256:0a3f329821dcadf54b2a3033a15e2e9f007069a9db43d7f51897e6b80e726b07 AS build
+FROM eclipse-temurin:21-jdk@sha256:8ad118b146aa92da815b576441acd6b42b38236797ad0b6edc8c200b85bb0734 AS build
 WORKDIR /src
 COPY gradlew settings.gradle.kts build.gradle.kts gradle.properties ./
 COPY gradle gradle
