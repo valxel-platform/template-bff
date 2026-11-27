@@ -1,6 +1,6 @@
 # One place for versions. Dependabot proposes updates here and in the Gradle wrapper.
 [versions]
-spring-boot = "4.1.2"
+spring-boot = "4.2.0"
 spring-cloud = "2025.1.2"
 # Sentry (errors only, when SENTRY_DSN is set): the Spring Boot 4 integration and the Logback appender.
 sentry = "8.61.0"
